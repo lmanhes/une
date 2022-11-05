@@ -1,0 +1,7 @@
+ale-py==0.8.0
+box2d-py==2.3.5
+gym[atari, accept-rom-license]==0.26.2
+loguru==0.6.0
+opencv-python==4.6.0.66
+psutil==5.9.3
+torch==1.12.1
