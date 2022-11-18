@@ -5,9 +5,6 @@ from typing import Union
 
 class AbstractAgent(ABC):
 
-    def __init__(self, config: dict = None):
-        self.config = config
-
     @abstractmethod
     def act(self, observation: dict) -> int:
         raise NotImplementedError()

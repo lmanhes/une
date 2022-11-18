@@ -3,31 +3,44 @@ import time
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import gym
+import wandb
+import torch.nn.functional as F
 
 from une.agents.dqn import DQNAgent, Transition
 from une.representations.tabular.mlp import GymMlp
 
-
-env = gym.make("CartPole-v0")
-
+env = gym.make("Pong-v4")
 
 observation = env.reset()
 print(observation.shape)
 
+config = {
+    "features_dim": 128,
+    "target_update_interval_steps": 1e3,
+    "train_freq": 4,
+    "exploration_decay_eps_max_steps": 1e4,
+    "learning_rate": 2.5e-4,
+    "gradient_steps": 3,
+    "tau": 1e-3,
+    "soft_update": True,
+    "buffer_size": int(1e5),
+    "use_gpu": False
+}
+
+wandb.init(
+    project="Pong-v4",
+    config=config)
+
 agent = DQNAgent(
     representation_module_cls=GymMlp,
     observation_shape=observation.shape,
-    features_dim=24,
     n_actions=env.action_space.n,
-    target_update_interval_steps=1000,
-    train_freq=4,
-    gradient_steps=1,
     exploration_initial_eps=1,
     exploration_final_eps=0.025,
-    exploration_decay_eps_max_steps=1e4,
-    buffer_size=int(1e5),
-    learning_rate=1e-4
+    **config
 )
+
+wandb.watch(agent.algo.q_net, F.smooth_l1_loss, log="all")
 
 total_steps = 0
 for episode in range(1000):
@@ -45,7 +58,6 @@ for episode in range(1000):
         steps += 1
         total_steps += 1
         action = agent.act(observation)
-        #print("training action : ", action)
         next_observation, reward, done, info = env.step(action)
         episode_reward += reward
 
@@ -63,8 +75,8 @@ for episode in range(1000):
     speed = round(steps/(end-start), 3)
     print(f"Training: steps {steps} : episode {episode} -- {episode_reward} rewards -- {speed} fps -- (epsilon {agent.epsilon})")
 
-
-    if episode % 100 == 0:
+    
+    if episode % 1 == 0:
 
         # Evaluation
         observation = env.reset()
@@ -81,7 +93,10 @@ for episode in range(1000):
 
             observation = next_observation
 
+        wandb.log({"episode_reward": episode_reward})
         end = time.time()
         speed = round(steps/(end-start), 3)
         print(f"Evaluation: steps {steps} : episode {episode} -- {episode_reward} rewards -- {speed} fps")
+
 env.close()
+wandb.finish()

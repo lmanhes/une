@@ -26,10 +26,10 @@ class UniformBuffer(AbstractBuffer):
         self.device = device
 
         self.observations = np.zeros((self.buffer_size,) + self.observation_shape, np.float16)
-        self.actions = np.zeros((self.buffer_size, 1), np.int8)
+        self.actions = np.zeros((self.buffer_size, 1))
         self.rewards = np.zeros((self.buffer_size,))
         self.next_observations = np.zeros((self.buffer_size,) + self.observation_shape, np.float16)
-        self.dones = np.zeros((self.buffer_size,), dtype=np.int8)
+        self.dones = np.zeros((self.buffer_size,))
 
         self.pos = 0
         self.full = False

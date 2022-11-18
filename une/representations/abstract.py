@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 
-class AbstractRepresentation(ABC, nn.Module):
+class AbstractRepresentation(nn.Module):
     def __init__(self, input_shape: Union[int, Tuple[int]], features_dim: int) -> None:
         super().__init__()
         self._input_shape = input_shape

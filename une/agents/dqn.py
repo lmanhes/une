@@ -23,14 +23,22 @@ class DQNAgent(AbstractAgent):
         learning_rate: float = 2.5e-4,
         max_grad_norm: float = 10,
         target_update_interval_steps: int = 1e4,
+        soft_update: bool = False,
+        tau: float = 0.1,
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
         exploration_decay_eps_max_steps: int = 1e4,
         train_freq: int = 4,
+        use_gpu: bool = False,
     ):
         super().__init__()
         self.train_freq = train_freq
         self.target_update_interval_steps = target_update_interval_steps
+        self.soft_update = soft_update
+        if self.soft_update:
+            self.tau = tau
+        else:
+            self.tau = 1
 
         self.algo = DQN(
             representation_module_cls=representation_module_cls,
@@ -43,10 +51,12 @@ class DQNAgent(AbstractAgent):
             buffer_size=buffer_size,
             learning_rate=learning_rate,
             max_grad_norm=max_grad_norm,
-            target_update_interval_steps=target_update_interval_steps,
+            tau=self.tau,
+            target_update_interval_steps=self.target_update_interval_steps,
             exploration_initial_eps=exploration_initial_eps,
             exploration_final_eps=exploration_final_eps,
-            exploration_decay_eps_max_steps=exploration_decay_eps_max_steps
+            exploration_decay_eps_max_steps=exploration_decay_eps_max_steps,
+            use_gpu=use_gpu
         )
 
         self.steps = 0
@@ -54,13 +64,13 @@ class DQNAgent(AbstractAgent):
     def act(self, observation: np.ndarray, evaluate: bool = False) -> int:
         self.steps += 1
         action = self.algo.choose_epsilon_greedy_action(observation, self.steps)
-        
-        if self.steps % self.train_freq == 0 and self.steps != 0 and not evaluate:
+
+        if self.steps % self.train_freq == 0 and not evaluate:
             loss = self.algo.learn()
 
-        if self.steps % self.target_update_interval_steps == 0 and self.steps != 0:
-            print("Update target network")
-            self.algo.hard_update_q_net_target()
+        if (self.steps % self.target_update_interval_steps == 0) or self.soft_update:
+            #print("Update target network")
+            self.algo.soft_update_q_net_target()
 
         return action
 

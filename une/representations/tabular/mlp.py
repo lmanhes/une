@@ -1,11 +1,9 @@
 from typing import Union, Tuple
 
-import numpy as np
 import torch
 import torch.nn as nn
 
 from une.representations.abstract import AbstractRepresentation
-from une.representations.utils import to_tensor
 
 
 class GymMlp(AbstractRepresentation):
@@ -23,5 +21,4 @@ class GymMlp(AbstractRepresentation):
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        #observations = to_tensor(observations)
         return self.mlp(observations)
