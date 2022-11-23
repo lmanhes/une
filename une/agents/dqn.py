@@ -3,10 +3,12 @@ from typing import Union, Tuple, Type
 
 import numpy as np
 
-from une.agents.abstract import AbstractAgent
 from une.algos.dqn import DQN
+from une.agents.abstract import AbstractAgent
 from une.representations.abstract import AbstractRepresentation
-from une.memories.buffer.uniform import Transition
+from une.memories.buffer.uniform import Transition, UniformBuffer
+from une.memories.buffer.ere import EREBuffer
+from une.memories.buffer.per import PERBuffer
 
 
 class DQNAgent(AbstractAgent):
@@ -15,6 +17,7 @@ class DQNAgent(AbstractAgent):
         representation_module_cls: Type[AbstractRepresentation],
         observation_shape: Union[int, Tuple[int]],
         n_actions: int,
+        memory_buffer_type: str = 'uniform',
         features_dim: int = 512,
         gamma: float = 0.99,
         batch_size: int = 32,
@@ -24,12 +27,14 @@ class DQNAgent(AbstractAgent):
         max_grad_norm: float = 10,
         target_update_interval_steps: int = 1e4,
         soft_update: bool = False,
-        tau: float = 0.1,
+        tau: float = 1e-3,
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
         exploration_decay_eps_max_steps: int = 1e4,
         train_freq: int = 4,
         use_gpu: bool = False,
+        per_alpha: float = 0.7,
+        per_beta: float = 0.4,
     ):
         super().__init__()
         self.train_freq = train_freq
@@ -40,8 +45,16 @@ class DQNAgent(AbstractAgent):
         else:
             self.tau = 1
 
+        if memory_buffer_type == 'ere':
+            memory_buffer_cls = EREBuffer
+        elif memory_buffer_type == 'per':
+            memory_buffer_cls = PERBuffer
+        else:
+            memory_buffer_cls = UniformBuffer
+
         self.algo = DQN(
             representation_module_cls=representation_module_cls,
+            memory_buffer_cls=memory_buffer_cls,
             observation_shape=observation_shape,
             features_dim=features_dim,
             n_actions=n_actions,
@@ -56,7 +69,9 @@ class DQNAgent(AbstractAgent):
             exploration_initial_eps=exploration_initial_eps,
             exploration_final_eps=exploration_final_eps,
             exploration_decay_eps_max_steps=exploration_decay_eps_max_steps,
-            use_gpu=use_gpu
+            use_gpu=use_gpu,
+            per_alpha=per_alpha,
+            per_beta=per_beta
         )
 
         self.steps = 0

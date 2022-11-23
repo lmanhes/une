@@ -7,22 +7,27 @@ import gym
 import wandb
 import torch.nn.functional as F
 
-from une.agents.dqn import DQNAgent, Transition
+from une.agents.dqn import DQNAgent
 from une.representations.tabular.mlp import GymMlp
 from experiments.utils import train
 
+seed = 42
 env = gym.make("LunarLander-v2")
+env.seed(seed)
+env.action_space.seed(seed)
+env.observation_space.seed(seed)
 
 config = {
     "features_dim": 64,
-    "target_update_interval_steps": 1e3,
+    "target_update_interval_steps": 1e4,
     "train_freq": 4,
     "exploration_decay_eps_max_steps": 1e5,
-    "learning_rate": 2.5e-3,
+    "learning_rate": 5e-4,
     "gradient_steps": 4,
     "tau": 1e-3,
     "soft_update": True,
     "use_gpu": False,
+    "memory_buffer_type": 'per'
 }
 
 wandb.init(project="LunarLander-v2", config=config)

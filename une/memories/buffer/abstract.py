@@ -7,6 +7,9 @@ import numpy as np
 
 class AbstractBuffer(ABC):
 
+    def __init__(self, **kwargs) -> None:
+        super().__init__()
+
     @abstractmethod
     def add(self, transition: Tuple[Any, ...]) -> Tuple[Any, ...]:
         raise NotImplementedError()

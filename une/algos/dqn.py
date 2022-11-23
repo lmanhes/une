@@ -6,7 +6,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from une.memories.buffer.uniform import UniformBuffer
+from une.memories.buffer.abstract import AbstractBuffer
+from une.memories.buffer.uniform import Transition
+from une.memories.buffer.per import TransitionPER
 from une.representations.abstract import AbstractRepresentation
 
 
@@ -24,23 +26,11 @@ class QNetwork(nn.Module):
         self.representation_module = representation_module_cls(
             input_shape=observation_shape, features_dim=features_dim
         )
-        # self.cnn = nn.Sequential(
-        #     nn.Conv2d(observation_shape[0], 32, kernel_size=8, stride=4, padding=0),
-        #     nn.ReLU(),
-        #     nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
-        #     nn.ReLU(),
-        #     nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
-        #     nn.ReLU(),
-        #     nn.Flatten(),
-        # )
-        # self.linear = nn.Sequential(nn.Linear(3136, features_dim), nn.ReLU())
-        
+
         self.q_net = nn.Linear(features_dim, action_dim)
 
     def forward(self, observations: torch.Tensor):
         observations = observations.to(self.device)
-        # x = self.cnn(observations)
-        # x = self.linear(x)
         x = self.representation_module(observations)
         return self.q_net(x)
 
@@ -52,6 +42,7 @@ class DQN:
         features_dim: int,
         n_actions: int,
         representation_module_cls: Type[AbstractRepresentation],
+        memory_buffer_cls: Type[AbstractBuffer],
         gamma: float = 0.99,
         batch_size: int = 32,
         gradient_steps: int = 1,
@@ -63,7 +54,9 @@ class DQN:
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
         exploration_decay_eps_max_steps: int = 1e3,
-        use_gpu: bool = False
+        use_gpu: bool = False,
+        per_alpha: float = 0.7,
+        per_beta: float = 0.4,
     ):
         self.observation_shape = observation_shape
         self.features_dim = features_dim
@@ -94,10 +87,13 @@ class DQN:
         else:
             self.device = "cpu"
 
-        self.memory_buffer = UniformBuffer(
+        self.memory_buffer = memory_buffer_cls(
             buffer_size=buffer_size,
             observation_shape=observation_shape,
             device=self.device,
+            gradient_steps=self.gradient_steps,
+            per_alpha=per_alpha,
+            per_beta=per_beta,
         )
 
         self.q_net = QNetwork(
@@ -108,8 +104,6 @@ class DQN:
             device=self.device,
         ).to(self.device)
 
-        print(self.q_net)
-
         self.q_net_target = QNetwork(
             representation_module_cls=representation_module_cls,
             observation_shape=observation_shape,
@@ -118,8 +112,6 @@ class DQN:
             device=self.device,
         ).to(self.device)
         self.hard_update_q_net_target()
-
-        print([o[0] for o in list(self.q_net.named_parameters())])
 
         self.optimizer = torch.optim.Adam(
             self.q_net.parameters(), lr=self.learning_rate
@@ -135,9 +127,11 @@ class DQN:
     def choose_greedy_action(self, observation: torch.Tensor) -> int:
         if not isinstance(observation, (torch.Tensor, np.ndarray)):
             observation = np.array(observation)
-            
+
         with torch.no_grad():
-            observation = torch.from_numpy(observation).unsqueeze(0).float().to(self.device)
+            observation = (
+                torch.from_numpy(observation).unsqueeze(0).float().to(self.device)
+            )
             current_q_values = self.q_net(observation)
             action = current_q_values.argmax(dim=1)
             if self.device in ["cuda", "mps"]:
@@ -162,49 +156,81 @@ class DQN:
         for p1, p2 in zip(self.q_net_target.parameters(), self.q_net.parameters()):
             p1.data.copy_(self.tau * p2.data + (1.0 - self.tau) * p1.data)
 
+    def compute_loss(
+        self,
+        samples_from_memory: Union[Transition, TransitionPER],
+        elementwise: bool = False,
+    ) -> torch.Tensor:
+        with torch.no_grad():
+            # Compute the next Q-values using the target network
+            # (batch_size, n_actions)
+            next_q_values = self.q_net_target(samples_from_memory.next_observation)
+
+            # Follow greedy policy: use the one with the highest value
+            # (batch_size, 1)
+            next_q_values = next_q_values.max(dim=1)[0].unsqueeze(1)
+
+            # 1-step TD target
+            target_q_values = (
+                samples_from_memory.reward
+                + (1 - samples_from_memory.done) * self.gamma * next_q_values
+            )
+
+        # Get current Q-values estimates
+        # (batch_size, n_actions)
+        current_q_values = self.q_net(samples_from_memory.observation)
+
+        # Retrieve the q-values for the actions from the replay buffer
+        # (batch_size, 1)
+        current_q_values = torch.gather(
+            current_q_values, dim=1, index=samples_from_memory.action.long()
+        )
+
+        # Compute Huber loss (less sensitive to outliers)
+        if elementwise:
+            return self.criterion(
+                current_q_values.squeeze(1),
+                target_q_values.squeeze(1),
+                reduction="none",
+            )
+        else:
+            return self.criterion(
+                current_q_values.squeeze(1), target_q_values.squeeze(1)
+            )
+
     def learn(self) -> float:
         if len(self.memory_buffer) < self.batch_size:
             return 0
 
         losses = []
-        for _ in range(self.gradient_steps):
-            samples_from_memory = self.memory_buffer.sample(self.batch_size, to_tensor=True)
-
-            with torch.no_grad():
-                # Compute the next Q-values using the target network
-                # (batch_size, n_actions)
-                next_q_values = self.q_net_target(samples_from_memory.next_observation)
-
-                # Follow greedy policy: use the one with the highest value
-                # (batch_size, 1)
-                next_q_values = next_q_values.max(dim=1)[0].unsqueeze(1)
-
-                # 1-step TD target
-                target_q_values = (
-                    samples_from_memory.reward
-                    + (1 - samples_from_memory.done) * self.gamma * next_q_values
-                )
-
-            # Get current Q-values estimates
-            # (batch_size, n_actions)
-            current_q_values = self.q_net(samples_from_memory.observation)
-
-            # Retrieve the q-values for the actions from the replay buffer
-            # (batch_size, 1)
-            current_q_values = torch.gather(
-                current_q_values, dim=1, index=samples_from_memory.action.long()
+        for g_step in range(self.gradient_steps + 1):
+            samples_from_memory = self.memory_buffer.sample(
+                batch_size=self.batch_size, to_tensor=True, g_step=g_step
             )
 
-            # Compute Huber loss (less sensitive to outliers)
-            loss = self.criterion(current_q_values.squeeze(1), target_q_values.squeeze(1)).to(self.device)
+            if self.memory_buffer.memory_type == "per":
+                elementwise_loss = self.compute_loss(
+                    samples_from_memory=samples_from_memory, elementwise=True
+                )
+                loss = torch.mean(elementwise_loss * samples_from_memory.weights)
+            else:
+                loss = self.compute_loss(samples_from_memory=samples_from_memory)
 
             # Optimize the policy
             self.optimizer.zero_grad()
             loss.backward()
             # Clip gradient norm
-
             torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), self.max_grad_norm)
             self.optimizer.step()
+
+            # PER: update priorities
+            if self.memory_buffer.memory_type == "per":
+                loss_for_prior = elementwise_loss.detach()
+                if self.device in ["cuda", "mps"]:
+                    loss_for_prior = loss_for_prior.cpu()
+                loss_for_prior = loss_for_prior.numpy()
+                new_priorities = loss_for_prior + self.memory_buffer.prior_eps
+                self.memory_buffer.update_priorities(samples_from_memory.indices, new_priorities)
 
             losses.append(loss.item())
 
