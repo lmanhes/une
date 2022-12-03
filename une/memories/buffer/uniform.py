@@ -20,6 +20,7 @@ class UniformBuffer(AbstractBuffer):
         self,
         buffer_size: int,
         observation_shape: Tuple[int],
+        observation_dtype: np.dtype,
         device: str = "cpu",
         **kwargs,
     ) -> None:
@@ -30,12 +31,12 @@ class UniformBuffer(AbstractBuffer):
         self.device = device
 
         self.observations = np.zeros(
-            (self.buffer_size,) + self.observation_shape, np.float16
+            (self.buffer_size,) + self.observation_shape, observation_dtype
         )
         self.actions = np.zeros((self.buffer_size, 1))
         self.rewards = np.zeros((self.buffer_size,))
         self.next_observations = np.zeros(
-            (self.buffer_size,) + self.observation_shape, np.float16
+            (self.buffer_size,) + self.observation_shape, observation_dtype
         )
         self.dones = np.zeros((self.buffer_size,))
 
@@ -57,7 +58,7 @@ class UniformBuffer(AbstractBuffer):
             + self.dones.nbytes
             + self.next_observations.nbytes
         )
-
+ 
         logger.info(
             f"Total memory usage : {total_memory_usage / 1e9} / {mem_available / 1e9} GB"
         )
@@ -72,11 +73,11 @@ class UniformBuffer(AbstractBuffer):
             )
 
     def add(self, transition: Transition):
-        self.observations[self.pos] = transition.observation
-        self.actions[self.pos] = transition.action
-        self.rewards[self.pos] = transition.reward
-        self.next_observations[self.pos] = transition.next_observation
-        self.dones[self.pos] = transition.done
+        self.observations[self.pos] = np.array(transition.observation).copy()
+        self.actions[self.pos] = np.array(transition.action).copy()
+        self.rewards[self.pos] = np.array(transition.reward).copy()
+        self.next_observations[self.pos] = np.array(transition.next_observation).copy()
+        self.dones[self.pos] = np.array(transition.done).copy()
 
         self.pos += 1
         if self.pos == self.buffer_size:

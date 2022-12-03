@@ -9,7 +9,7 @@ from une.agents.dqn import DQNAgent
 from experiments.utils import make_atari_env, train
 
 
-env_name = "PongNoFrameskip-v4"
+env_name = "BreakoutNoFrameskip-v4"
 env = make_atari_env(env_name)
 print(env.observation_space.shape)
 
@@ -18,12 +18,13 @@ config = {
     "target_update_interval_steps": 1e3,
     "train_freq": 4,
     "exploration_decay_eps_max_steps": 1e6,
-    "learning_rate": 1e-4,
-    "gradient_steps": 4,
+    "learning_rate": 5e-4,
+    "gradient_steps": 1,
     "tau": 1e-3,
     "soft_update": True,
-    "buffer_size": int(3e4),
+    "buffer_size": int(2e4),
     "use_gpu": False,
+    "memory_buffer_type": "uniform"
 }
 
 wandb.init(project=env_name, config=config)
@@ -31,6 +32,7 @@ wandb.init(project=env_name, config=config)
 agent = DQNAgent(
     representation_module_cls=AtariCnn,
     observation_shape=env.observation_space.shape,
+    observation_dtype=env.observation_space.dtype,
     n_actions=env.action_space.n,
     exploration_initial_eps=1,
     exploration_final_eps=0.025,

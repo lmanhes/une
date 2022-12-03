@@ -16,6 +16,7 @@ class DQNAgent(AbstractAgent):
         self,
         representation_module_cls: Type[AbstractRepresentation],
         observation_shape: Union[int, Tuple[int]],
+        observation_dtype: np.dtype,
         n_actions: int,
         memory_buffer_type: str = 'uniform',
         features_dim: int = 512,
@@ -56,6 +57,7 @@ class DQNAgent(AbstractAgent):
             representation_module_cls=representation_module_cls,
             memory_buffer_cls=memory_buffer_cls,
             observation_shape=observation_shape,
+            observation_dtype=observation_dtype,
             features_dim=features_dim,
             n_actions=n_actions,
             gamma=gamma,
@@ -65,6 +67,7 @@ class DQNAgent(AbstractAgent):
             learning_rate=learning_rate,
             max_grad_norm=max_grad_norm,
             tau=self.tau,
+            soft_update=soft_update,
             target_update_interval_steps=self.target_update_interval_steps,
             exploration_initial_eps=exploration_initial_eps,
             exploration_final_eps=exploration_final_eps,
@@ -80,12 +83,8 @@ class DQNAgent(AbstractAgent):
         self.steps += 1
         action = self.algo.choose_epsilon_greedy_action(observation, self.steps)
 
-        if self.steps % self.train_freq == 0 and not evaluate:
-            loss = self.algo.learn()
-
-        if (self.steps % self.target_update_interval_steps == 0) or self.soft_update:
-            #print("Update target network")
-            self.algo.soft_update_q_net_target()
+        if not evaluate and (self.steps % self.train_freq == 0):
+            self.algo.learn(self.steps)
 
         return action
 

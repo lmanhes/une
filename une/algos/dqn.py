@@ -39,6 +39,7 @@ class DQN:
     def __init__(
         self,
         observation_shape: Tuple[int],
+        observation_dtype: np.dtype,
         features_dim: int,
         n_actions: int,
         representation_module_cls: Type[AbstractRepresentation],
@@ -50,6 +51,7 @@ class DQN:
         learning_rate: float = 2.5e-4,
         max_grad_norm: float = 10,
         target_update_interval_steps: int = 1e4,
+        soft_update: bool = False,
         tau: float = 1,
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
@@ -69,6 +71,7 @@ class DQN:
         self.batch_size = batch_size
         self.max_grad_norm = max_grad_norm
         self.tau = tau
+        self.soft_update = soft_update
         self.learning_rate = learning_rate
         self.target_update_interval_steps = target_update_interval_steps
 
@@ -90,6 +93,7 @@ class DQN:
         self.memory_buffer = memory_buffer_cls(
             buffer_size=buffer_size,
             observation_shape=observation_shape,
+            observation_dtype=observation_dtype,
             device=self.device,
             gradient_steps=self.gradient_steps,
             per_alpha=per_alpha,
@@ -155,6 +159,12 @@ class DQN:
     def soft_update_q_net_target(self) -> None:
         for p1, p2 in zip(self.q_net_target.parameters(), self.q_net.parameters()):
             p1.data.copy_(self.tau * p2.data + (1.0 - self.tau) * p1.data)
+    
+    def soft_update_q_net_target_old(self) -> None:
+        with torch.no_grad():
+            for param, target_param in zip(self.q_net.parameters(), self.q_net_target.parameters()):
+                target_param.data.mul_(1 - self.tau)
+                torch.add(target_param.data, param.data, alpha=self.tau, out=target_param.data)
 
     def compute_loss(
         self,
@@ -198,7 +208,7 @@ class DQN:
                 current_q_values.squeeze(1), target_q_values.squeeze(1)
             )
 
-    def learn(self) -> float:
+    def learn(self, steps: int) -> float:
         if len(self.memory_buffer) < self.batch_size:
             return 0
 
@@ -234,4 +244,10 @@ class DQN:
 
             losses.append(loss.item())
 
-        return np.mean(losses, 0)
+        # if not self.soft_update and (steps % self.target_update_interval_steps == 0):
+        #     self.hard_update_q_net_target()
+        
+        # if self.soft_update:
+        #     self.soft_update_q_net_target()
+
+        #return np.mean(losses, 0)

@@ -32,6 +32,7 @@ class PERBuffer(UniformBuffer):
         self,
         buffer_size: int,
         observation_shape: Tuple[int],
+        observation_dtype: np.dtype,
         device: str = "cpu",
         alpha: float = 0.7,
         beta: float = 0.4,
@@ -39,7 +40,10 @@ class PERBuffer(UniformBuffer):
         **kwargs
     ) -> None:
         super().__init__(
-            buffer_size=buffer_size, observation_shape=observation_shape, device=device
+            buffer_size=buffer_size,
+            observation_shape=observation_shape,
+            observation_dtype=observation_dtype,
+            device=device,
         )
         self.alpha = alpha
         self.beta = beta
