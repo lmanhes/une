@@ -1,5 +1,6 @@
 import time
 
+from loguru import logger
 import numpy as np
 import gym
 import wandb
@@ -70,6 +71,7 @@ def train(
 ):
     global_steps = 0
     n_episodes = 0
+    said_full = False
     while global_steps < max_global_steps:
         observation = env.reset()
         done = False
@@ -93,6 +95,9 @@ def train(
             )
             agent.memorize(transition)
             observation = next_observation
+            if not said_full and agent.algo.memory_buffer.full:
+                logger.warning(f"Memory is full at {global_steps} steps")
+                said_full = True
 
         n_episodes += 1
         end = time.time()

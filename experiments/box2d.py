@@ -12,26 +12,30 @@ from une.representations.tabular.mlp import GymMlp
 from experiments.utils import train
 
 seed = 42
-env = gym.make("LunarLander-v2")
+env_name = "LunarLander-v2"
+env = gym.make(env_name)
 env.seed(seed)
 env.action_space.seed(seed)
 env.observation_space.seed(seed)
 
 config = {
+    "name": f"DQN_{env_name}",
     "features_dim": 64,
     "target_update_interval_steps": 1e3,
     "train_freq": 4,
-    "exploration_decay_eps_max_steps": 1e5,
+    "save_freq": 5e4,
+    "exploration_decay_eps_max_steps": 3e4,
     "learning_rate": 5e-4,
-    "gradient_steps": 1,
-    "tau": 1e-3,
+    "gradient_steps": 4,
+    "tau": 5e-3,
     "soft_update": True,
     "buffer_size": int(1e5),
+    "n_step": 2,
     "use_gpu": False,
-    "memory_buffer_type": 'per'
+    "memory_buffer_type": 'ere'
 }
 
-wandb.init(project="LunarLander-v2", config=config)
+wandb.init(project=env_name, config=config)
 
 agent = DQNAgent(
     representation_module_cls=GymMlp,

@@ -9,20 +9,23 @@ from une.agents.dqn import DQNAgent
 from experiments.utils import make_atari_env, train
 
 
-env_name = "BreakoutNoFrameskip-v4"
+env_name = "Pong-v4"
 env = make_atari_env(env_name)
 print(env.observation_space.shape)
 
 config = {
+    "name": f"DQN_PER_{env_name}",
     "features_dim": 512,
-    "target_update_interval_steps": 1e3,
+    "target_update_interval_steps": 2e3,
     "train_freq": 4,
+    "save_freq": 1e5,
     "exploration_decay_eps_max_steps": 1e6,
-    "learning_rate": 5e-4,
-    "gradient_steps": 1,
-    "tau": 1e-3,
-    "soft_update": True,
-    "buffer_size": int(2e4),
+    "learning_rate": 2.5e-4,
+    "gradient_steps": 4,
+    "tau": 5e-3,
+    "soft_update": False,
+    "buffer_size": int(1e5),
+    "n_step": 1,
     "use_gpu": False,
     "memory_buffer_type": "uniform"
 }

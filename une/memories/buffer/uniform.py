@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from une.memories.buffer.abstract import AbstractBuffer
+from une.memories.buffer.nstep import NStep
 
 
 Transition = namedtuple(
@@ -58,7 +59,7 @@ class UniformBuffer(AbstractBuffer):
             + self.dones.nbytes
             + self.next_observations.nbytes
         )
- 
+
         logger.info(
             f"Total memory usage : {total_memory_usage / 1e9} / {mem_available / 1e9} GB"
         )
@@ -124,3 +125,33 @@ class UniformBuffer(AbstractBuffer):
             return self.buffer_size
         else:
             return self.pos
+
+
+class NStepUniformBuffer(UniformBuffer, NStep):
+    """
+    Paper: http://incompleteideas.net/papers/sutton-88-with-erratum.pdf
+    """
+
+    def __init__(
+        self,
+        buffer_size: int,
+        observation_shape: Tuple[int],
+        observation_dtype: np.dtype,
+        device: str = "cpu",
+        n_step: int = 3,
+        gamma: float = 0.99,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            buffer_size=buffer_size,
+            observation_shape=observation_shape,
+            observation_dtype=observation_dtype,
+            device=device,
+            n_step=n_step,
+            gamma=gamma,
+        )
+
+    def add(self, transition: Transition):
+        nstep_transition = super().get_nstep_transition(transition=transition)
+        if nstep_transition:
+            super().add(transition=nstep_transition)

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Tuple, Union
+import pickle
+from typing import Any, Tuple, Union, Type
 
 import numpy as np
 
@@ -26,10 +27,9 @@ class AbstractBuffer(ABC):
     # def reset(self):
     #     raise NotImplementedError()
 
-    # @abstractmethod
-    # def save(self, filename: Union[str, Path]):
-    #     raise NotImplementedError()
+    def save(self, filename: Union[str, Path]):
+        # Use protocol>=4 to support saving replay buffers >= 4Gb
+        pickle.dump(self, open(filename, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
 
-    # @abstractmethod
-    # def load(self, filename: Union[str, Path]):
-    #     raise NotImplementedError()
+    def load(cls, filename: Union[str, Path]) -> Type['AbstractBuffer']:
+        return pickle.load(open(filename, "rb"))

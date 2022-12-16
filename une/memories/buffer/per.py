@@ -1,26 +1,13 @@
 from collections import namedtuple
 from typing import Tuple, List, Union
 
-from loguru import logger
 import numpy as np
 import torch
 
-from une.memories.buffer.uniform import UniformBuffer, Transition
+from une.memories.buffer.uniform import UniformBuffer
+from une.memories.buffer.nstep import NStep
 from une.memories.utils.segment_tree import SumSegmentTree, MinSegmentTree
-
-
-TransitionPER = namedtuple(
-    "Transition",
-    field_names=[
-        "observation",
-        "action",
-        "reward",
-        "done",
-        "next_observation",
-        "indices",
-        "weights",
-    ],
-)
+from une.memories.utils.transition import Transition, TransitionPER
 
 
 class PERBuffer(UniformBuffer):
@@ -65,7 +52,6 @@ class PERBuffer(UniformBuffer):
 
     def add(self, transition: Transition):
         super().add(transition=transition)
-
         self.sum_tree[self.tree_ptr] = self.max_priority**self.alpha
         self.min_tree[self.tree_ptr] = self.max_priority**self.alpha
         self.tree_ptr = (self.tree_ptr + 1) % self.buffer_size
@@ -147,3 +133,35 @@ class PERBuffer(UniformBuffer):
         weight = weight / max_weight
 
         return weight
+
+
+class NStepPERBuffer(PERBuffer, NStep):
+    def __init__(
+        self,
+        buffer_size: int,
+        observation_shape: Tuple[int],
+        observation_dtype: np.dtype,
+        device: str = "cpu",
+        alpha: float = 0.7,
+        beta: float = 0.4,
+        prior_eps: float = 1e-6,
+        n_step: int = 3,
+        gamma: float = 0.99,
+        **kwargs
+    ) -> None:
+        super().__init__(
+            buffer_size=buffer_size,
+            observation_shape=observation_shape,
+            observation_dtype=observation_dtype,
+            device=device,
+            n_step=n_step,
+            gamma=gamma,
+            alpha=alpha,
+            beta=beta,
+            prior_eps=prior_eps,
+        )
+
+    def add(self, transition: Transition):
+        nstep_transition = super().get_nstep_transition(transition=transition)
+        if nstep_transition:
+            super(PERBuffer, self).add(transition=nstep_transition)

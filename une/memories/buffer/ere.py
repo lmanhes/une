@@ -1,10 +1,10 @@
 from typing import Tuple, Union, List
 
-from loguru import logger
 import numpy as np
-import torch
 
-from une.memories.buffer.uniform import UniformBuffer, Transition
+from une.memories.buffer.nstep import NStep
+from une.memories.buffer.uniform import UniformBuffer
+from une.memories.utils.transition import Transition
 
 
 class EREBuffer(UniformBuffer):
@@ -16,13 +16,17 @@ class EREBuffer(UniformBuffer):
         self,
         buffer_size: int,
         observation_shape: Tuple[int],
+        observation_dtype: np.dtype,
         device: str = "cpu",
         gradient_steps: int = 4,
         eta: float = 0.996,
         **kwargs
     ) -> None:
         super().__init__(
-            buffer_size=buffer_size, observation_shape=observation_shape, device=device
+            buffer_size=buffer_size,
+            observation_shape=observation_shape,
+            observation_dtype=observation_dtype,
+            device=device,
         )
         self.gradient_steps = gradient_steps
         self.eta = eta
@@ -47,8 +51,40 @@ class EREBuffer(UniformBuffer):
         )
         return np.random.choice(sorted_indices[:ck], size=batch_size, replace=False)
 
-    def sample(self, g_step: int, batch_size: int, to_tensor: bool = False) -> Transition:
+    def sample(
+        self, g_step: int, batch_size: int, to_tensor: bool = False
+    ) -> Transition:
         assert len(self) >= batch_size, "You must add more transitions"
 
         indices = self.sample_idxs(g_step=g_step, batch_size=batch_size)
         return self.sample_transitions(indices=indices, to_tensor=to_tensor)
+
+
+class NStepEREBuffer(EREBuffer, NStep):
+    def __init__(
+        self,
+        buffer_size: int,
+        observation_shape: Tuple[int],
+        observation_dtype: np.dtype,
+        device: str = "cpu",
+        gradient_steps: int = 4,
+        eta: float = 0.997,
+        n_step: int = 3,
+        gamma: float = 0.99,
+        **kwargs
+    ) -> None:
+        super().__init__(
+            buffer_size=buffer_size,
+            observation_shape=observation_shape,
+            observation_dtype=observation_dtype,
+            device=device,
+            gradient_steps=gradient_steps,
+            eta=eta,
+            n_step=n_step,
+            gamma=gamma
+        )
+
+    def add(self, transition: Transition):
+        nstep_transition = super().get_nstep_transition(transition=transition)
+        if nstep_transition:
+            super().add(transition=nstep_transition)

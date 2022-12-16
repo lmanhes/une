@@ -1,4 +1,6 @@
-from typing import Tuple, Union, Type
+from copy import deepcopy
+from pathlib import Path
+from typing import Tuple, Union, Type, List, Dict, Any
 
 from loguru import logger
 import numpy as np
@@ -48,6 +50,7 @@ class DQN:
         batch_size: int = 32,
         gradient_steps: int = 1,
         buffer_size: int = int(1e6),
+        n_step: int = 1,
         learning_rate: float = 2.5e-4,
         max_grad_norm: float = 10,
         target_update_interval_steps: int = 1e4,
@@ -61,26 +64,35 @@ class DQN:
         per_beta: float = 0.4,
     ):
         self.observation_shape = observation_shape
+        self.observation_dtype = observation_dtype
         self.features_dim = features_dim
         self.n_actions = n_actions
 
-        self.buffer_size = buffer_size
+        self.representation_module_cls = representation_module_cls
+        self.memory_buffer_cls = memory_buffer_cls
 
         self.gamma = gamma
-        self.gradient_steps = gradient_steps
         self.batch_size = batch_size
-        self.max_grad_norm = max_grad_norm
-        self.tau = tau
-        self.soft_update = soft_update
+        self.gradient_steps = gradient_steps
+        self.buffer_size = buffer_size
+        self.n_step = n_step
         self.learning_rate = learning_rate
+        self.max_grad_norm = max_grad_norm
         self.target_update_interval_steps = target_update_interval_steps
+        self.soft_update = soft_update
+        self.tau = tau
 
         self.exploration_initial_eps = exploration_initial_eps
         self.exploration_final_eps = exploration_final_eps
         self.exploration_decay_eps_max_steps = exploration_decay_eps_max_steps
+        self.use_gpu = use_gpu
+
+        self.per_alpha = per_alpha
+        self.per_beta = per_beta
+
         self._epsilon = self.exploration_initial_eps
 
-        if use_gpu:
+        if self.use_gpu:
             if torch.backends.mps.is_available() and torch.backends.mps.is_built():
                 self.device = "mps"
             elif torch.cuda.is_available():
@@ -90,32 +102,43 @@ class DQN:
         else:
             self.device = "cpu"
 
+        print("torch.get_num_threads : ", torch.get_num_threads())
+        torch.set_num_threads(1)
+
         self.memory_buffer = memory_buffer_cls(
-            buffer_size=buffer_size,
-            observation_shape=observation_shape,
-            observation_dtype=observation_dtype,
+            buffer_size=self.buffer_size,
+            n_step=self.n_step,
+            observation_shape=self.observation_shape,
+            observation_dtype=self.observation_dtype,
             device=self.device,
             gradient_steps=self.gradient_steps,
-            per_alpha=per_alpha,
-            per_beta=per_beta,
+            per_alpha=self.per_alpha,
+            per_beta=self.per_beta,
+            gamma=self.gamma
         )
 
         self.q_net = QNetwork(
-            representation_module_cls=representation_module_cls,
-            observation_shape=observation_shape,
-            features_dim=features_dim,
+            representation_module_cls=self.representation_module_cls,
+            observation_shape=self.observation_shape,
+            features_dim=self.features_dim,
             action_dim=self.n_actions,
             device=self.device,
         ).to(self.device)
 
-        self.q_net_target = QNetwork(
-            representation_module_cls=representation_module_cls,
-            observation_shape=observation_shape,
-            features_dim=features_dim,
-            action_dim=self.n_actions,
-            device=self.device,
-        ).to(self.device)
+        self.q_net_target = (
+            QNetwork(
+                representation_module_cls=self.representation_module_cls,
+                observation_shape=self.observation_shape,
+                features_dim=self.features_dim,
+                action_dim=self.n_actions,
+                device=self.device,
+            )
+            .to(self.device)
+            .eval()
+        )
         self.hard_update_q_net_target()
+        for target_param in self.q_net_target.parameters():
+            target_param.requires_grad = False
 
         self.optimizer = torch.optim.Adam(
             self.q_net.parameters(), lr=self.learning_rate
@@ -156,15 +179,28 @@ class DQN:
     def hard_update_q_net_target(self) -> None:
         self.q_net_target.load_state_dict(self.q_net.state_dict())
 
+        # for target_param in self.q_net_target.parameters():
+        #     target_param.requires_grad = False
+
     def soft_update_q_net_target(self) -> None:
-        for p1, p2 in zip(self.q_net_target.parameters(), self.q_net.parameters()):
-            p1.data.copy_(self.tau * p2.data + (1.0 - self.tau) * p1.data)
-    
-    def soft_update_q_net_target_old(self) -> None:
+        params = deepcopy(list(self.q_net.parameters()))
+        for param in params:
+            param.requires_grad = False
+
+        # for p1, p2 in zip(self.q_net_target.parameters(), params):
+        #     p1.data.copy_(self.tau * p2.data + (1.0 - self.tau) * p1.data)
+
         with torch.no_grad():
-            for param, target_param in zip(self.q_net.parameters(), self.q_net_target.parameters()):
+            for param, target_param in zip(params, self.q_net_target.parameters()):
                 target_param.data.mul_(1 - self.tau)
-                torch.add(target_param.data, param.data, alpha=self.tau, out=target_param.data)
+                torch.add(
+                    target_param.data, param.data, alpha=self.tau, out=target_param.data
+                )
+
+        for target_param in self.q_net_target.parameters():
+            target_param.requires_grad = False
+
+        del params
 
     def compute_loss(
         self,
@@ -240,14 +276,36 @@ class DQN:
                     loss_for_prior = loss_for_prior.cpu()
                 loss_for_prior = loss_for_prior.numpy()
                 new_priorities = loss_for_prior + self.memory_buffer.prior_eps
-                self.memory_buffer.update_priorities(samples_from_memory.indices, new_priorities)
+                self.memory_buffer.update_priorities(
+                    samples_from_memory.indices, new_priorities
+                )
 
             losses.append(loss.item())
 
-        # if not self.soft_update and (steps % self.target_update_interval_steps == 0):
-        #     self.hard_update_q_net_target()
-        
-        # if self.soft_update:
-        #     self.soft_update_q_net_target()
+        if not self.soft_update and (steps % self.target_update_interval_steps == 0):
+            self.hard_update_q_net_target()
 
-        #return np.mean(losses, 0)
+        if self.soft_update:
+            self.soft_update_q_net_target()
+
+        return np.mean(losses, 0)
+
+    @property
+    def _excluded_save_params(self) -> List[str]:
+        return ["memory_buffer", "q_net", "q_net_target", "optimizer", "criterion"]
+
+    def get_algo_params(self) -> Dict[str, Any]:
+        data = self.__dict__.copy()
+        for param_name in self._excluded_save_params:
+            if param_name in data:
+                data.pop(param_name, None)
+        return data
+
+    def get_algo_save_object(self) -> Dict[str, Any]:
+        return {
+            "algo_params": self.get_algo_params(),
+            "memory_buffer": self.memory_buffer,
+            "q_net_state_dict": self.q_net.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "criterion": self.criterion,
+        }

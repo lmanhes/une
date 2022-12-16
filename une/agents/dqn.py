@@ -1,24 +1,28 @@
 from pathlib import Path
-from typing import Union, Tuple, Type
+from typing import Union, Tuple, Type, List
 
 import numpy as np
+import torch
 
 from une.algos.dqn import DQN
 from une.agents.abstract import AbstractAgent
 from une.representations.abstract import AbstractRepresentation
-from une.memories.buffer.uniform import Transition, UniformBuffer
-from une.memories.buffer.ere import EREBuffer
-from une.memories.buffer.per import PERBuffer
+from une.memories.buffer.uniform import UniformBuffer, NStepUniformBuffer
+from une.memories.buffer.ere import EREBuffer, NStepEREBuffer
+from une.memories.buffer.per import PERBuffer, NStepPERBuffer
+from une.memories.utils.transition import Transition
 
 
 class DQNAgent(AbstractAgent):
     def __init__(
         self,
+        name: str,
         representation_module_cls: Type[AbstractRepresentation],
         observation_shape: Union[int, Tuple[int]],
         observation_dtype: np.dtype,
         n_actions: int,
         memory_buffer_type: str = 'uniform',
+        n_step: int = 1,
         features_dim: int = 512,
         gamma: float = 0.99,
         batch_size: int = 32,
@@ -33,25 +37,29 @@ class DQNAgent(AbstractAgent):
         exploration_final_eps: float = 0.05,
         exploration_decay_eps_max_steps: int = 1e4,
         train_freq: int = 4,
+        save_freq: int = 1e3,
         use_gpu: bool = False,
         per_alpha: float = 0.7,
         per_beta: float = 0.4,
+        steps: int = 0,
+        **kwargs,
     ):
         super().__init__()
-        self.train_freq = train_freq
-        self.target_update_interval_steps = target_update_interval_steps
-        self.soft_update = soft_update
-        if self.soft_update:
-            self.tau = tau
-        else:
-            self.tau = 1
-
         if memory_buffer_type == 'ere':
-            memory_buffer_cls = EREBuffer
+            if n_step > 1:
+                memory_buffer_cls = NStepEREBuffer
+            else:
+                memory_buffer_cls = EREBuffer
         elif memory_buffer_type == 'per':
-            memory_buffer_cls = PERBuffer
+            if n_step > 1:
+                raise NotImplementedError()
+            else:
+                memory_buffer_cls = PERBuffer
         else:
-            memory_buffer_cls = UniformBuffer
+            if n_step > 1:
+                memory_buffer_cls = NStepUniformBuffer
+            else:
+                memory_buffer_cls = UniformBuffer
 
         self.algo = DQN(
             representation_module_cls=representation_module_cls,
@@ -64,11 +72,12 @@ class DQNAgent(AbstractAgent):
             batch_size=batch_size,
             gradient_steps=gradient_steps,
             buffer_size=buffer_size,
+            n_step=n_step,
             learning_rate=learning_rate,
             max_grad_norm=max_grad_norm,
-            tau=self.tau,
+            tau=tau,
             soft_update=soft_update,
-            target_update_interval_steps=self.target_update_interval_steps,
+            target_update_interval_steps=target_update_interval_steps,
             exploration_initial_eps=exploration_initial_eps,
             exploration_final_eps=exploration_final_eps,
             exploration_decay_eps_max_steps=exploration_decay_eps_max_steps,
@@ -77,7 +86,10 @@ class DQNAgent(AbstractAgent):
             per_beta=per_beta
         )
 
-        self.steps = 0
+        self.name = name
+        self.train_freq = train_freq
+        self.save_freq = save_freq
+        self.steps = steps
 
     def act(self, observation: np.ndarray, evaluate: bool = False) -> int:
         self.steps += 1
@@ -85,6 +97,9 @@ class DQNAgent(AbstractAgent):
 
         if not evaluate and (self.steps % self.train_freq == 0):
             self.algo.learn(self.steps)
+
+        if self.steps % self.save_freq == 0:
+            self.save(f"artifacts/{self.name}.pt")
 
         return action
 
@@ -98,8 +113,35 @@ class DQNAgent(AbstractAgent):
     def reset(self):
         raise NotImplementedError()
 
-    def save(self, filename: Union[str, Path]):
-        raise NotImplementedError()
+    @property
+    def _excluded_save_params(self) -> List[str]:
+        return ['algo']
 
-    def load(self, filename: Union[str, Path]):
-        raise NotImplementedError()
+    def get_agent_params(self):
+        data = self.__dict__.copy()
+        for param_name in self._excluded_save_params:
+            if param_name in data:
+                data.pop(param_name, None)
+        return data
+
+    def save(self, path: Union[str, Path]):
+        save_object = self.algo.get_algo_save_object()
+        save_object.update({"agent_params": self.get_agent_params()})
+        torch.save(save_object, path)
+
+    @classmethod
+    def load(cls, path: Union[str, Path]):
+        load_object = torch.load(path)
+
+        params = load_object['agent_params']
+        params.update(load_object['algo_params'])
+        agent = cls(**params)
+        agent.algo.memory_buffer = load_object['memory_buffer']
+        agent.algo.q_net.load_state_dict(load_object['q_net_state_dict'])
+        agent.algo.optimizer.load_state_dict(load_object['optimizer_state_dict'])
+
+        print("Memory size : ", len(agent.algo.memory_buffer))
+        print("Global steps : ", agent.steps, agent.name)
+        print("Epsilon : ", agent.epsilon, agent.steps)
+
+        return agent
