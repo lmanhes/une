@@ -164,4 +164,4 @@ class NStepPERBuffer(PERBuffer, NStep):
     def add(self, transition: Transition):
         nstep_transition = super().get_nstep_transition(transition=transition)
         if nstep_transition:
-            super(PERBuffer, self).add(transition=nstep_transition)
+            super().add(transition=nstep_transition)

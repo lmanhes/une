@@ -155,3 +155,4 @@ wandb
 .DS_Store
 */.DS_Store
 artifacts/*
+videos/*

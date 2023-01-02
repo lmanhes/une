@@ -36,6 +36,7 @@ class DQNAgent(AbstractAgent):
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
         exploration_decay_eps_max_steps: int = 1e4,
+        warmup: int = 1e4,
         train_freq: int = 4,
         save_freq: int = 1e3,
         use_gpu: bool = False,
@@ -52,7 +53,8 @@ class DQNAgent(AbstractAgent):
                 memory_buffer_cls = EREBuffer
         elif memory_buffer_type == 'per':
             if n_step > 1:
-                raise NotImplementedError()
+                #raise NotImplementedError()
+                memory_buffer_cls = NStepPERBuffer
             else:
                 memory_buffer_cls = PERBuffer
         else:
@@ -87,6 +89,7 @@ class DQNAgent(AbstractAgent):
         )
 
         self.name = name
+        self.warmup = warmup
         self.train_freq = train_freq
         self.save_freq = save_freq
         self.steps = steps
@@ -95,7 +98,7 @@ class DQNAgent(AbstractAgent):
         self.steps += 1
         action = self.algo.choose_epsilon_greedy_action(observation, self.steps)
 
-        if not evaluate and (self.steps % self.train_freq == 0):
+        if not evaluate and (self.steps % self.train_freq == 0) and (self.steps > self.warmup):
             self.algo.learn(self.steps)
 
         if self.steps % self.save_freq == 0:

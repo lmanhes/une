@@ -160,7 +160,7 @@ class DQN:
                 torch.from_numpy(observation).unsqueeze(0).float().to(self.device)
             )
             current_q_values = self.q_net(observation)
-            action = current_q_values.argmax(dim=1)
+            action = current_q_values.argmax(dim=1).detach()
             if self.device in ["cuda", "mps"]:
                 action = action.cpu()
             return action.numpy()[0]
