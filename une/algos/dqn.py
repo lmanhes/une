@@ -114,7 +114,7 @@ class DQN:
             gradient_steps=self.gradient_steps,
             per_alpha=self.per_alpha,
             per_beta=self.per_beta,
-            gamma=self.gamma
+            gamma=self.gamma,
         )
 
         self.q_net = QNetwork(
@@ -137,12 +137,9 @@ class DQN:
             .eval()
         )
         self.hard_update_q_net_target()
-        for target_param in self.q_net_target.parameters():
-            target_param.requires_grad = False
+        self.q_net_target.eval()
 
-        self.optimizer = torch.optim.Adam(
-            self.q_net.parameters(), lr=self.learning_rate
-        )
+        self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=self.learning_rate)
 
         self.criterion = F.smooth_l1_loss
 
@@ -179,8 +176,8 @@ class DQN:
     def hard_update_q_net_target(self) -> None:
         self.q_net_target.load_state_dict(self.q_net.state_dict())
 
-        # for target_param in self.q_net_target.parameters():
-        #     target_param.requires_grad = False
+        for target_param in self.q_net_target.parameters():
+            target_param.requires_grad = False
 
     def soft_update_q_net_target(self) -> None:
         params = deepcopy(list(self.q_net.parameters()))
@@ -261,6 +258,7 @@ class DQN:
                 loss = torch.mean(elementwise_loss * samples_from_memory.weights)
             else:
                 loss = self.compute_loss(samples_from_memory=samples_from_memory)
+            losses.append(loss.item())
 
             # Optimize the policy
             self.optimizer.zero_grad()
@@ -279,8 +277,6 @@ class DQN:
                 self.memory_buffer.update_priorities(
                     samples_from_memory.indices, new_priorities
                 )
-
-            losses.append(loss.item())
 
         if not self.soft_update and (steps % self.target_update_interval_steps == 0):
             self.hard_update_q_net_target()

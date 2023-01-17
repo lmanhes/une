@@ -6,11 +6,11 @@ import torch.nn.functional as F
 
 from une.agents.dqn import DQNAgent
 from une.representations.tabular.mlp import GymMlp
-from experiments.utils import train, make_gym_env
+from experiments.utils import train, make_gym_env, seed_agent
 
 seed = 42
 env_name = "CartPole-v1"
-env = make_gym_env(env_name=env_name, atari=False, video=True)
+env = make_gym_env(env_name=env_name, atari=False, video=True, seed=seed)
 
 
 config = {
@@ -22,16 +22,18 @@ config = {
     "warmup": 5e2,
     "exploration_decay_eps_max_steps": 5e3,
     "learning_rate": 5e-4,
-    "gradient_steps": 4,
+    "gradient_steps": 1,
     "tau": 5e-3,
     "soft_update": True,
     "buffer_size": int(1e4),
     "n_step": 3,
     "use_gpu": False,
-    "memory_buffer_type": 'ere'
+    "memory_buffer_type": 'per'
 }
 
-wandb.init(project=env_name, config=config, monitor_gym=True)
+seed_agent(seed=seed)
+
+wandb.init(project=env_name, config=config)
 agent = DQNAgent(
     representation_module_cls=GymMlp,
     observation_shape=env.observation_space.shape,
@@ -42,13 +44,13 @@ agent = DQNAgent(
     **config
 )
 
-wandb.watch(agent.algo.q_net, F.smooth_l1_loss, log="all")
+wandb.watch(agent.algo.q_net, agent.algo.criterion, log="all")
 
 train(
     agent=agent,
     env=env,
     env_name=env_name,
-    max_global_steps=5e4,
+    max_global_steps=1e5,
     max_episode_steps=3000,
     eval_every_n_episodes=1,
 )

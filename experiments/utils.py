@@ -15,7 +15,11 @@ from une.agents.dqn import Transition
 
 
 def make_gym_env(
-    env_name: str, seed: int = 42, atari: bool = False, video: bool = False
+    env_name: str,
+    seed: int = 42,
+    atari: bool = False,
+    video: bool = False,
+    n_frame_stack: int = 1,
 ):
     env = gym.make(env_name, render_mode="rgb_array")
     env = gym.wrappers.RecordEpisodeStatistics(env)
@@ -24,7 +28,9 @@ def make_gym_env(
 
     if atari:
         env = AtariPreprocessing(env)
-        env = FrameStack(env, num_stack=4)
+
+    if n_frame_stack > 1:
+        env = FrameStack(env, num_stack=n_frame_stack)
 
     seed_env(env=env, seed=seed)
     return env
@@ -47,7 +53,7 @@ def eval(
     global_steps: int,
     seed: int,
     max_episode_steps: int = 3000,
-    logs: bool = False
+    logs: bool = False,
 ):
     observation, info = env.reset(seed=seed)
     done = False
@@ -55,11 +61,11 @@ def eval(
     episode_reward = 0
     start = time.time()
 
-    while not done and episode_steps < max_episode_steps:
+    while not done:
         episode_steps += 1
         action = agent.act(observation, evaluate=True)
         next_observation, reward, terminated, truncated, info = env.step(action)
-        done = terminated or truncated
+        done = (terminated or truncated) or (episode_steps > max_episode_steps)
         episode_reward += reward
 
         observation = next_observation
@@ -82,16 +88,13 @@ def train(
     env: gym.Env,
     env_name: str,
     global_steps: int = 0,
+    n_episodes: int = 0,
     max_global_steps: int = 1e7,
     max_episode_steps: int = 3000,
     eval_every_n_episodes: int = 10,
     seed: int = 42,
-    logs: bool = True
+    logs: bool = True,
 ):
-
-    seed_agent(seed=seed)
-
-    n_episodes = 0
     said_full = False
     while global_steps < max_global_steps:
         observation, info = env.reset(seed=seed)
@@ -100,12 +103,12 @@ def train(
         episode_reward = 0
         start = time.time()
 
-        while not done and episode_steps < max_episode_steps:
+        while not done:
             episode_steps += 1
             global_steps += 1
             action = agent.act(observation)
             next_observation, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
+            done = (terminated or truncated) or (episode_steps > max_episode_steps)
 
             episode_reward += reward
 
@@ -117,12 +120,16 @@ def train(
                 next_observation=next_observation,
             )
             agent.memorize(transition)
+
+            if done:
+                agent.episodes += 1
+                n_episodes += 1
+
             observation = next_observation
             if not said_full and agent.algo.memory_buffer.full:
                 logger.warning(f"Memory is full at {global_steps} steps")
                 said_full = True
 
-        n_episodes += 1
         end = time.time()
         speed = round(episode_steps / (end - start), 3)
         if logs:
@@ -144,11 +151,14 @@ def train(
                 global_steps=global_steps,
                 max_episode_steps=max_episode_steps,
                 seed=seed,
-                logs=logs
+                logs=logs,
             )
 
         # log gameplay video in wandb
         if logs:
             if capped_cubic_video_schedule(episode_id=n_episodes):
                 mp4 = f"videos/{env_name}/rl-video-episode-{n_episodes}.mp4"
-                wandb.log({"gameplays": wandb.Video(mp4)}, step=global_steps,)
+                wandb.log(
+                    {"gameplays": wandb.Video(mp4)},
+                    step=global_steps,
+                )

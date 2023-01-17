@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Union, Tuple, Type, List
 
@@ -21,7 +22,7 @@ class DQNAgent(AbstractAgent):
         observation_shape: Union[int, Tuple[int]],
         observation_dtype: np.dtype,
         n_actions: int,
-        memory_buffer_type: str = 'uniform',
+        memory_buffer_type: str = "uniform",
         n_step: int = 1,
         features_dim: int = 512,
         gamma: float = 0.99,
@@ -43,17 +44,17 @@ class DQNAgent(AbstractAgent):
         per_alpha: float = 0.7,
         per_beta: float = 0.4,
         steps: int = 0,
+        episodes: int = 0,
         **kwargs,
     ):
         super().__init__()
-        if memory_buffer_type == 'ere':
+        if memory_buffer_type == "ere":
             if n_step > 1:
                 memory_buffer_cls = NStepEREBuffer
             else:
                 memory_buffer_cls = EREBuffer
-        elif memory_buffer_type == 'per':
+        elif memory_buffer_type == "per":
             if n_step > 1:
-                #raise NotImplementedError()
                 memory_buffer_cls = NStepPERBuffer
             else:
                 memory_buffer_cls = PERBuffer
@@ -85,7 +86,7 @@ class DQNAgent(AbstractAgent):
             exploration_decay_eps_max_steps=exploration_decay_eps_max_steps,
             use_gpu=use_gpu,
             per_alpha=per_alpha,
-            per_beta=per_beta
+            per_beta=per_beta,
         )
 
         self.name = name
@@ -93,21 +94,29 @@ class DQNAgent(AbstractAgent):
         self.train_freq = train_freq
         self.save_freq = save_freq
         self.steps = steps
+        self.episodes = episodes
 
     def act(self, observation: np.ndarray, evaluate: bool = False) -> int:
-        self.steps += 1
+        if not evaluate:
+            self.steps += 1
         action = self.algo.choose_epsilon_greedy_action(observation, self.steps)
 
-        if not evaluate and (self.steps % self.train_freq == 0) and (self.steps > self.warmup):
+        if (
+            not evaluate
+            and (self.steps % self.train_freq == 0)
+            and (self.steps > self.warmup)
+        ):
             self.algo.learn(self.steps)
 
-        if self.steps % self.save_freq == 0:
-            self.save(f"artifacts/{self.name}.pt")
+        #if self.steps % self.save_freq == 0:
+        #    self.save(f"artifacts/{self.name}.pt")
 
         return action
 
     def memorize(self, transition: Transition):
         self.algo.memory_buffer.add(transition)
+        if transition.done:
+            self.episodes += 1
 
     @property
     def epsilon(self) -> float:
@@ -118,7 +127,7 @@ class DQNAgent(AbstractAgent):
 
     @property
     def _excluded_save_params(self) -> List[str]:
-        return ['algo']
+        return ["algo"]
 
     def get_agent_params(self):
         data = self.__dict__.copy()
@@ -136,12 +145,15 @@ class DQNAgent(AbstractAgent):
     def load(cls, path: Union[str, Path]):
         load_object = torch.load(path)
 
-        params = load_object['agent_params']
-        params.update(load_object['algo_params'])
+        params = load_object["agent_params"]
+        params.update(load_object["algo_params"])
         agent = cls(**params)
-        agent.algo.memory_buffer = load_object['memory_buffer']
-        agent.algo.q_net.load_state_dict(load_object['q_net_state_dict'])
-        agent.algo.optimizer.load_state_dict(load_object['optimizer_state_dict'])
+        agent.algo.memory_buffer = load_object["memory_buffer"]
+        agent.algo.q_net.load_state_dict(load_object["q_net_state_dict"])
+        agent.algo.hard_update_q_net_target()
+        for target_param in agent.algo.q_net_target.parameters():
+            target_param.requires_grad = False
+        agent.algo.optimizer.load_state_dict(load_object["optimizer_state_dict"])
 
         print("Memory size : ", len(agent.algo.memory_buffer))
         print("Global steps : ", agent.steps, agent.name)
