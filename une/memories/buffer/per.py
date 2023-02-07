@@ -1,4 +1,3 @@
-from collections import namedtuple
 from typing import Tuple, List, Union
 
 import numpy as np

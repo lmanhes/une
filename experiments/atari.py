@@ -12,7 +12,7 @@ from experiments.utils import make_gym_env, train, seed_agent
 resume = False
 run_id = ""
 
-env_name = "MsPacmanNoFrameskip-v4"
+env_name = "PongNoFrameskip-v4"
 seed = 42
 env = make_gym_env(env_name, atari=True, video=True, seed=seed, n_frame_stack=4)
 print(env.observation_space.shape)

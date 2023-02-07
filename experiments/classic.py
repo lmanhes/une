@@ -2,7 +2,6 @@ import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import wandb
-import torch.nn.functional as F
 
 from une.agents.dqn import DQNAgent
 from une.representations.tabular.mlp import GymMlp

@@ -1,9 +1,7 @@
 from typing import Tuple, Union, Type
 
-from loguru import logger
 import numpy as np
 import torch
-import torch.nn.functional as F
 import wandb
 
 from une.memories.buffer.abstract import AbstractBuffer
