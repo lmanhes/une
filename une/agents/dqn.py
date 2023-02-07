@@ -6,6 +6,8 @@ import numpy as np
 import torch
 
 from une.algos.dqn import DQN
+from une.algos.icm_dqn import ICMDQN
+from une.algos.noisy_dqn import NoisyDQN
 from une.agents.abstract import AbstractAgent
 from une.representations.abstract import AbstractRepresentation
 from une.memories.buffer.uniform import UniformBuffer, NStepUniformBuffer
@@ -45,6 +47,11 @@ class DQNAgent(AbstractAgent):
         per_beta: float = 0.4,
         steps: int = 0,
         episodes: int = 0,
+        exploration: str = "epsilon-greedy",
+        curiosity: str = None,
+        icm_features_dim: int = 256,
+        icm_alpha: float = 0.1,
+        icm_beta: float = 0.2,
         **kwargs,
     ):
         super().__init__()
@@ -64,7 +71,20 @@ class DQNAgent(AbstractAgent):
             else:
                 memory_buffer_cls = UniformBuffer
 
-        self.algo = DQN(
+        print("memory_buffer_cls : ", memory_buffer_cls)
+
+        if exploration == "noisy":
+            algo_cls = NoisyDQN
+            print("NoisyDQN")
+        else:
+            algo_cls = DQN
+            print("CLASSIC DQN")
+
+        if curiosity == "icm":
+            print("ICM DQN")
+            algo_cls = ICMDQN
+
+        self.algo = algo_cls(
             representation_module_cls=representation_module_cls,
             memory_buffer_cls=memory_buffer_cls,
             observation_shape=observation_shape,
@@ -87,6 +107,9 @@ class DQNAgent(AbstractAgent):
             use_gpu=use_gpu,
             per_alpha=per_alpha,
             per_beta=per_beta,
+            icm_features_dim=icm_features_dim,
+            icm_alpha=icm_alpha,
+            icm_beta=icm_beta
         )
 
         self.name = name
@@ -95,16 +118,17 @@ class DQNAgent(AbstractAgent):
         self.save_freq = save_freq
         self.steps = steps
         self.episodes = episodes
+        self.curiosity = curiosity
 
     def act(self, observation: np.ndarray, evaluate: bool = False) -> int:
         if not evaluate:
             self.steps += 1
-        action = self.algo.choose_epsilon_greedy_action(observation, self.steps)
+        action = self.algo.choose_action(observation, self.steps)
 
         if (
             not evaluate
             and (self.steps % self.train_freq == 0)
-            and (self.steps > self.warmup)
+            #and (self.steps > self.warmup)
         ):
             self.algo.learn(self.steps)
 

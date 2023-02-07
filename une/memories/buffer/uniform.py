@@ -8,12 +8,8 @@ import torch
 
 from une.memories.buffer.abstract import AbstractBuffer
 from une.memories.buffer.nstep import NStep
-
-
-Transition = namedtuple(
-    "Transition",
-    field_names=["observation", "action", "reward", "done", "next_observation"],
-)
+from une.memories.utils.transition import Transition, TransitionNStep
+from une.memories.utils.running_stats import RunningStats
 
 
 class UniformBuffer(AbstractBuffer):
@@ -43,6 +39,8 @@ class UniformBuffer(AbstractBuffer):
 
         self.pos = 0
         self.full = False
+
+        self.e_reward_running_stats = RunningStats()
 
         self.check_memory_usage()
 
@@ -80,10 +78,17 @@ class UniformBuffer(AbstractBuffer):
         self.next_observations[self.pos] = np.array(transition.next_observation).copy()
         self.dones[self.pos] = np.array(transition.done).copy()
 
+        self.e_reward_running_stats += transition.reward
+
         self.pos += 1
         if self.pos == self.buffer_size:
             self.full = True
             self.pos = 0
+
+    def normalize_rewards(self, rewards: np.ndarray):
+        mean = self.e_reward_running_stats.mean
+        std = self.e_reward_running_stats.std + 1e-10
+        return (rewards - mean) / std
 
     def sample_idxs(self, batch_size: int) -> Union[np.ndarray, List[int]]:
         return np.random.choice(len(self), size=batch_size, replace=False)
@@ -94,6 +99,7 @@ class UniformBuffer(AbstractBuffer):
         observations = self.observations[indices]
         actions = self.actions[indices]
         rewards = self.rewards[indices].reshape(-1, 1)
+        rewards = self.normalize_rewards(rewards)
         next_observations = self.next_observations[indices]
         dones = self.dones[indices].reshape(-1, 1)
 
@@ -155,3 +161,35 @@ class NStepUniformBuffer(UniformBuffer, NStep):
         nstep_transition = super().get_nstep_transition(transition=transition)
         if nstep_transition:
             super().add(transition=nstep_transition)
+
+    def sample_transitions(
+        self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False
+    ) -> TransitionNStep:
+        observations = self.observations[indices]
+        actions = self.actions[indices]
+        rewards = self.rewards[indices].reshape(-1, 1)
+        rewards = self.normalize_rewards(rewards)
+        next_observations = self.observations[(np.array(indices)+1) % self.buffer_size]
+        next_nstep_observations = self.next_observations[indices]
+        dones = self.dones[indices].reshape(-1, 1)
+
+        if to_tensor:
+            observations = torch.from_numpy(observations).float().to(self.device)
+            actions = torch.from_numpy(actions).to(torch.int8).to(self.device)
+            rewards = torch.from_numpy(rewards).float().to(self.device)
+            next_observations = (
+                torch.from_numpy(next_observations).float().to(self.device)
+            )
+            next_nstep_observations = (
+                torch.from_numpy(next_nstep_observations).float().to(self.device)
+            )
+            dones = torch.from_numpy(dones).to(torch.int8).to(self.device)
+
+        return TransitionNStep(
+            observation=observations,
+            action=actions,
+            reward=rewards,
+            next_observation=next_observations,
+            next_nstep_observation=next_nstep_observations,
+            done=dones,
+        )

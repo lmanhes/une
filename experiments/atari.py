@@ -12,7 +12,7 @@ from experiments.utils import make_gym_env, train, seed_agent
 resume = False
 run_id = ""
 
-env_name = "PongNoFrameskip-v4"
+env_name = "MsPacmanNoFrameskip-v4"
 seed = 42
 env = make_gym_env(env_name, atari=True, video=True, seed=seed, n_frame_stack=4)
 print(env.observation_space.shape)
@@ -29,10 +29,15 @@ config = {
     "gradient_steps": 1,
     "tau": 5e-3,
     "soft_update": True,
-    "buffer_size": int(1e4),
-    "n_step": 1,
+    "buffer_size": int(1e5),
+    "n_step": 3,
     "use_gpu": False,
-    "memory_buffer_type": "uniform",
+    "memory_buffer_type": "per",
+    "exploration": "noisy",
+    "curiosity": None,
+    "icm_features_dim": 256,
+    "icm_alpha": 0.1,
+    "icm_beta": 0.2
 }
 
 seed_agent(seed=seed)
@@ -60,7 +65,7 @@ else:
         **config,
     )
 
-wandb.watch(agent.algo.q_net, agent.algo.criterion, log="all")
+wandb.watch(agent.algo.networks, log="all")
 
 train(
     agent=agent,
@@ -69,7 +74,7 @@ train(
     global_steps=agent.steps if resume else 0,
     n_episodes=agent.episodes if resume else 0,
     max_global_steps=1e7,
-    max_episode_steps=3000,
+    max_episode_steps=10000,
     eval_every_n_episodes=1,
 )
 

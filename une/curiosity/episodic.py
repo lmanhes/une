@@ -1,0 +1,4 @@
+
+
+class EpisodicCuriosity(object):
+    pass

@@ -9,7 +9,7 @@ from une.representations.tabular.mlp import GymMlp
 from experiments.utils import train, make_gym_env, seed_agent
 
 seed = 42
-env_name = "CartPole-v1"
+env_name = "MountainCar-v0"
 env = make_gym_env(env_name=env_name, atari=False, video=True, seed=seed)
 
 
@@ -28,7 +28,12 @@ config = {
     "buffer_size": int(1e4),
     "n_step": 3,
     "use_gpu": False,
-    "memory_buffer_type": 'per'
+    "memory_buffer_type": 'per',
+    "exploration": "noisy",
+    "curiosity": "icm",
+    "icm_features_dim": 128,
+    "icm_alpha": 0.1,
+    "icm_beta": 0.2
 }
 
 seed_agent(seed=seed)
@@ -44,13 +49,13 @@ agent = DQNAgent(
     **config
 )
 
-wandb.watch(agent.algo.q_net, agent.algo.criterion, log="all")
+wandb.watch(agent.algo.networks, log="all")
 
 train(
     agent=agent,
     env=env,
     env_name=env_name,
-    max_global_steps=1e5,
+    max_global_steps=5e4,
     max_episode_steps=3000,
     eval_every_n_episodes=1,
 )

@@ -9,8 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from une.memories.buffer.abstract import AbstractBuffer
-from une.memories.buffer.uniform import Transition
-from une.memories.buffer.per import TransitionPER
+from une.memories.buffer.uniform import Transition, TransitionNStep
+from une.memories.buffer.per import TransitionPER, TransitionNStepPER
 from une.representations.abstract import AbstractRepresentation
 
 
@@ -34,7 +34,7 @@ class QNetwork(nn.Module):
     def forward(self, observations: torch.Tensor):
         observations = observations.to(self.device)
         x = self.representation_module(observations)
-        return self.q_net(x)
+        return x, self.q_net(x)
 
 
 class DQN:
@@ -46,6 +46,7 @@ class DQN:
         n_actions: int,
         representation_module_cls: Type[AbstractRepresentation],
         memory_buffer_cls: Type[AbstractBuffer],
+        q_network_cls: Type[nn.Module] = QNetwork,
         gamma: float = 0.99,
         batch_size: int = 32,
         gradient_steps: int = 1,
@@ -62,6 +63,7 @@ class DQN:
         use_gpu: bool = False,
         per_alpha: float = 0.7,
         per_beta: float = 0.4,
+        **kwargs
     ):
         self.observation_shape = observation_shape
         self.observation_dtype = observation_dtype
@@ -69,6 +71,7 @@ class DQN:
         self.n_actions = n_actions
 
         self.representation_module_cls = representation_module_cls
+        self.q_network_cls = q_network_cls
         self.memory_buffer_cls = memory_buffer_cls
 
         self.gamma = gamma
@@ -117,7 +120,7 @@ class DQN:
             gamma=self.gamma,
         )
 
-        self.q_net = QNetwork(
+        self.q_net = q_network_cls(
             representation_module_cls=self.representation_module_cls,
             observation_shape=self.observation_shape,
             features_dim=self.features_dim,
@@ -126,7 +129,7 @@ class DQN:
         ).to(self.device)
 
         self.q_net_target = (
-            QNetwork(
+            q_network_cls(
                 representation_module_cls=self.representation_module_cls,
                 observation_shape=self.observation_shape,
                 features_dim=self.features_dim,
@@ -139,9 +142,19 @@ class DQN:
         self.hard_update_q_net_target()
         self.q_net_target.eval()
 
-        self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=self.learning_rate)
+        self.optimizer = None
 
         self.criterion = F.smooth_l1_loss
+
+    @property
+    def networks(self):
+        return [self.q_net]
+
+    def parameters(self):
+        return self.q_net.parameters()
+
+    def set_optimizer(self):
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
     def epsilon(self, steps: int) -> float:
         return self.exploration_final_eps + (
@@ -156,7 +169,7 @@ class DQN:
             observation = (
                 torch.from_numpy(observation).unsqueeze(0).float().to(self.device)
             )
-            current_q_values = self.q_net(observation)
+            _, current_q_values = self.q_net(observation)
             action = current_q_values.argmax(dim=1).detach()
             if self.device in ["cuda", "mps"]:
                 action = action.cpu()
@@ -165,9 +178,7 @@ class DQN:
     def choose_random_action(self) -> int:
         return np.random.choice(range(self.n_actions))
 
-    def choose_epsilon_greedy_action(
-        self, observation: torch.Tensor, steps: int
-    ) -> int:
+    def choose_action(self, observation: torch.Tensor, steps: int) -> int:
         if np.random.random() > self.epsilon(steps):
             return self.choose_greedy_action(observation)
         else:
@@ -201,13 +212,23 @@ class DQN:
 
     def compute_loss(
         self,
-        samples_from_memory: Union[Transition, TransitionPER],
+        samples_from_memory: Union[
+            Transition, TransitionNStep, TransitionPER, TransitionNStepPER
+        ],
+        steps: int,
         elementwise: bool = False,
     ) -> torch.Tensor:
         with torch.no_grad():
             # Compute the next Q-values using the target network
             # (batch_size, n_actions)
-            next_q_values = self.q_net_target(samples_from_memory.next_observation)
+            if self.n_step > 1:
+                _, next_q_values = self.q_net_target(
+                    samples_from_memory.next_nstep_observation
+                )
+            else:
+                _, next_q_values = self.q_net_target(
+                    samples_from_memory.next_observation
+                )
 
             # Follow greedy policy: use the one with the highest value
             # (batch_size, 1)
@@ -221,7 +242,7 @@ class DQN:
 
         # Get current Q-values estimates
         # (batch_size, n_actions)
-        current_q_values = self.q_net(samples_from_memory.observation)
+        _, current_q_values = self.q_net(samples_from_memory.observation)
 
         # Retrieve the q-values for the actions from the replay buffer
         # (batch_size, 1)
@@ -242,6 +263,9 @@ class DQN:
             )
 
     def learn(self, steps: int) -> float:
+        if not self.optimizer:
+            self.set_optimizer()
+
         if len(self.memory_buffer) < self.batch_size:
             return 0
 
@@ -253,18 +277,22 @@ class DQN:
 
             if self.memory_buffer.memory_type == "per":
                 elementwise_loss = self.compute_loss(
-                    samples_from_memory=samples_from_memory, elementwise=True
+                    samples_from_memory=samples_from_memory,
+                    elementwise=True,
+                    steps=steps,
                 )
                 loss = torch.mean(elementwise_loss * samples_from_memory.weights)
             else:
-                loss = self.compute_loss(samples_from_memory=samples_from_memory)
+                loss = self.compute_loss(
+                    samples_from_memory=samples_from_memory, steps=steps
+                )
             losses.append(loss.item())
 
             # Optimize the policy
             self.optimizer.zero_grad()
             loss.backward()
             # Clip gradient norm
-            torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), self.max_grad_norm)
+            torch.nn.utils.clip_grad_norm_(self.parameters(), self.max_grad_norm)
             self.optimizer.step()
 
             # PER: update priorities
