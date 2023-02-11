@@ -11,7 +11,6 @@ import torch
 import wandb
 
 from une.agents.abstract import AbstractAgent
-from une.agents.dqn import Transition
 
 
 def make_gym_env(
@@ -63,7 +62,7 @@ def eval(
 
     while not done:
         episode_steps += 1
-        action = agent.act(observation, evaluate=True)
+        action = agent.act(observation=observation, evaluate=True)
         next_observation, reward, terminated, truncated, info = env.step(action)
         done = (terminated or truncated) or (episode_steps > max_episode_steps)
         episode_reward += reward
@@ -106,20 +105,13 @@ def train(
         while not done:
             episode_steps += 1
             global_steps += 1
-            action = agent.act(observation)
+            action = agent.act(observation=observation)
             next_observation, reward, terminated, truncated, info = env.step(action)
             done = (terminated or truncated) or (episode_steps > max_episode_steps)
 
             episode_reward += reward
-
-            transition = Transition(
-                observation=observation,
-                action=action,
-                reward=reward,
-                done=done,
-                next_observation=next_observation,
-            )
-            agent.memorize(transition)
+            
+            agent.memorize(observation=next_observation, reward=reward, done=done)
 
             if done:
                 agent.episodes += 1

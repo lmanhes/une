@@ -57,37 +57,20 @@ class PERBuffer(UniformBuffer):
 
     def sample_idxs(self, batch_size: int) -> Union[np.ndarray, List[int]]:
         return self._sample_proportional(batch_size=batch_size)
+    
+    def sample_transitions(self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False) -> TransitionPER:
+        transition = super().sample_transitions(indices, to_tensor)
 
-    def sample(
-        self, batch_size: int, to_tensor: bool = False, **kwargs
-    ) -> TransitionPER:
-        assert len(self) >= batch_size, "You must add more transitions"
-
-        indices = self.sample_idxs(batch_size=batch_size)
         weights = np.array([self._calculate_weight(i, self.beta) for i in indices])
-
-        observations = self.observations[indices]
-        actions = self.actions[indices]
-        rewards = self.rewards[indices].reshape(-1, 1)
-        next_observations = self.next_observations[indices]
-        dones = self.dones[indices].reshape(-1, 1)
-
         if to_tensor:
-            observations = torch.from_numpy(observations).float().to(self.device)
-            actions = torch.from_numpy(actions).to(torch.int8).to(self.device)
-            rewards = torch.from_numpy(rewards).float().to(self.device)
-            next_observations = (
-                torch.from_numpy(next_observations).float().to(self.device)
-            )
-            dones = torch.from_numpy(dones).to(torch.int8).to(self.device)
             weights = torch.from_numpy(weights).float().to(self.device)
 
         return TransitionPER(
-            observation=observations,
-            action=actions,
-            reward=rewards,
-            next_observation=next_observations,
-            done=dones,
+            observation=transition.observation,
+            action=transition.action,
+            reward=transition.reward,
+            next_observation=transition.next_observation,
+            done=transition.done,
             indices=indices,
             weights=weights,
         )
@@ -165,41 +148,28 @@ class NStepPERBuffer(PERBuffer, NStep):
         if nstep_transition:
             super().add(transition=nstep_transition)
 
-    def sample(
-        self, batch_size: int, to_tensor: bool = False, **kwargs
+    def sample_transitions(
+        self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False
     ) -> TransitionNStepPER:
-        assert len(self) >= batch_size, "You must add more transitions"
+        transition = super().sample_transitions(indices=indices, to_tensor=to_tensor)
 
-        indices = self.sample_idxs(batch_size=batch_size)
-        weights = np.array([self._calculate_weight(i, self.beta) for i in indices])
-
-        observations = self.observations[indices]
-        actions = self.actions[indices]
-        rewards = self.rewards[indices].reshape(-1, 1)
         next_observations = self.observations[(np.array(indices)+1) % self.buffer_size]
         next_nstep_observations = self.next_observations[indices]
-        dones = self.dones[indices].reshape(-1, 1)
-
         if to_tensor:
-            observations = torch.from_numpy(observations).float().to(self.device)
-            actions = torch.from_numpy(actions).to(torch.int8).to(self.device)
-            rewards = torch.from_numpy(rewards).float().to(self.device)
             next_observations = (
                 torch.from_numpy(next_observations).float().to(self.device)
             )
             next_nstep_observations = (
                 torch.from_numpy(next_nstep_observations).float().to(self.device)
             )
-            dones = torch.from_numpy(dones).to(torch.int8).to(self.device)
-            weights = torch.from_numpy(weights).float().to(self.device)
 
         return TransitionNStepPER(
-            observation=observations,
-            action=actions,
-            reward=rewards,
+            observation=transition.observation,
+            action=transition.action,
+            reward=transition.reward,
             next_observation=next_observations,
             next_nstep_observation=next_nstep_observations,
-            done=dones,
-            indices=indices,
-            weights=weights,
+            done=transition.done,
+            indices=transition.indices,
+            weights=transition.weights,
         )

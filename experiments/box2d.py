@@ -32,11 +32,13 @@ config = {
     "n_step": 3,
     "use_gpu": False,
     "memory_buffer_type": "per",
-    "exploration": "noisy",
-    "curiosity": "icm",
-    "icm_features_dim": 128,
-    "icm_alpha": 0.1,
-    "icm_beta": 0.2
+    "exploration": 'noisy',
+    "curiosity": 'ngu',
+    "intrinsic_reward_weight": 0.5,
+    "icm_features_dim": 64,
+    "icm_forward_loss_weight": 0.2,
+    "ecm_memory_size": 300,
+    "ecm_k": 10
 }
 
 seed_agent(seed=seed)

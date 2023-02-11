@@ -153,30 +153,23 @@ class NStepUniformBuffer(UniformBuffer, NStep):
     def sample_transitions(
         self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False
     ) -> TransitionNStep:
-        observations = self.observations[indices]
-        actions = self.actions[indices]
-        rewards = self.rewards[indices].reshape(-1, 1)
+        transition = super().sample_transitions(indices=indices, to_tensor=to_tensor)
+
         next_observations = self.observations[(np.array(indices)+1) % self.buffer_size]
         next_nstep_observations = self.next_observations[indices]
-        dones = self.dones[indices].reshape(-1, 1)
-
         if to_tensor:
-            observations = torch.from_numpy(observations).float().to(self.device)
-            actions = torch.from_numpy(actions).to(torch.int8).to(self.device)
-            rewards = torch.from_numpy(rewards).float().to(self.device)
             next_observations = (
                 torch.from_numpy(next_observations).float().to(self.device)
             )
             next_nstep_observations = (
                 torch.from_numpy(next_nstep_observations).float().to(self.device)
             )
-            dones = torch.from_numpy(dones).to(torch.int8).to(self.device)
 
         return TransitionNStep(
-            observation=observations,
-            action=actions,
-            reward=rewards,
+            observation=transition.observation,
+            action=transition.action,
+            reward=transition.reward,
             next_observation=next_observations,
             next_nstep_observation=next_nstep_observations,
-            done=dones,
+            done=transition.done,
         )

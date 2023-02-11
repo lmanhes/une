@@ -1,18 +1,20 @@
 from pathlib import Path
 from typing import Union, Tuple, Type, List
 
+from loguru import logger
 import numpy as np
 import torch
 
 from une.algos.dqn import DQN
 from une.algos.icm_dqn import ICMDQN
+from une.algos.ngu_dqn import NGUDQN
 from une.algos.noisy_dqn import NoisyDQN
 from une.agents.abstract import AbstractAgent
 from une.representations.abstract import AbstractRepresentation
 from une.memories.buffer.uniform import UniformBuffer, NStepUniformBuffer
 from une.memories.buffer.ere import EREBuffer, NStepEREBuffer
 from une.memories.buffer.per import PERBuffer, NStepPERBuffer
-from une.memories.utils.transition import Transition
+from une.memories.buffer.episodic import EpisodicPERBuffer, EpisodicNStepUniformBuffer, EpisodicNStepPERBuffer
 
 
 class DQNAgent(AbstractAgent):
@@ -48,12 +50,24 @@ class DQNAgent(AbstractAgent):
         episodes: int = 0,
         exploration: str = "epsilon-greedy",
         curiosity: str = None,
+        intrinsic_reward_weight: float = 0.1,
         icm_features_dim: int = 256,
-        icm_alpha: float = 0.1,
-        icm_beta: float = 0.2,
+        icm_forward_loss_weight: float = 0.2,
+        ecm_memory_size: int = 300,
+        ecm_k: int = 10,
         **kwargs,
     ):
         super().__init__()
+        if exploration == "noisy":
+            algo_cls = NoisyDQN
+        else:
+            algo_cls = DQN
+
+        if curiosity == "icm":
+            algo_cls = ICMDQN
+        elif curiosity == "ngu":
+            algo_cls = NGUDQN
+
         if memory_buffer_type == "ere":
             if n_step > 1:
                 memory_buffer_cls = NStepEREBuffer
@@ -61,27 +75,26 @@ class DQNAgent(AbstractAgent):
                 memory_buffer_cls = EREBuffer
         elif memory_buffer_type == "per":
             if n_step > 1:
-                memory_buffer_cls = NStepPERBuffer
+                if curiosity == "ngu":
+                    memory_buffer_cls = EpisodicNStepPERBuffer
+                else:
+                    memory_buffer_cls = NStepPERBuffer
             else:
-                memory_buffer_cls = PERBuffer
+                if curiosity == "ngu":
+                    memory_buffer_cls = EpisodicPERBuffer
+                else:
+                    memory_buffer_cls = PERBuffer
         else:
             if n_step > 1:
-                memory_buffer_cls = NStepUniformBuffer
+                if curiosity == "ngu":
+                    memory_buffer_cls = EpisodicNStepUniformBuffer
+                else:
+                    memory_buffer_cls = NStepUniformBuffer
             else:
                 memory_buffer_cls = UniformBuffer
 
-        print("memory_buffer_cls : ", memory_buffer_cls)
-
-        if exploration == "noisy":
-            algo_cls = NoisyDQN
-            print("NoisyDQN")
-        else:
-            algo_cls = DQN
-            print("CLASSIC DQN")
-
-        if curiosity == "icm":
-            print("ICM DQN")
-            algo_cls = ICMDQN
+        logger.info(f"memory_buffer_cls : {memory_buffer_cls}")
+        logger.info(f"algo_cls : {algo_cls}")
 
         self.algo = algo_cls(
             representation_module_cls=representation_module_cls,
@@ -106,9 +119,11 @@ class DQNAgent(AbstractAgent):
             use_gpu=use_gpu,
             per_alpha=per_alpha,
             per_beta=per_beta,
+            intrinsic_reward_weight=intrinsic_reward_weight,
             icm_features_dim=icm_features_dim,
-            icm_alpha=icm_alpha,
-            icm_beta=icm_beta
+            icm_forward_loss_weight=icm_forward_loss_weight,
+            ecm_memory_size=ecm_memory_size,
+            ecm_k=ecm_k
         )
 
         self.name = name
@@ -122,23 +137,23 @@ class DQNAgent(AbstractAgent):
     def act(self, observation: np.ndarray, evaluate: bool = False) -> int:
         if not evaluate:
             self.steps += 1
-        action = self.algo.choose_action(observation, self.steps)
+        action = self.algo.act(observation=observation, steps=self.steps)
 
         if (
             not evaluate
             and (self.steps % self.train_freq == 0)
-            #and (self.steps > self.warmup)
+            # and (self.steps > self.warmup)
         ):
             self.algo.learn(self.steps)
 
-        #if self.steps % self.save_freq == 0:
+        # if self.steps % self.save_freq == 0:
         #    self.save(f"artifacts/{self.name}.pt")
 
         return action
 
-    def memorize(self, transition: Transition):
-        self.algo.memory_buffer.add(transition)
-        if transition.done:
+    def memorize(self, observation: np.ndarray, reward: float, done: bool):
+        self.algo.memorize(observation=observation, reward=reward, done=done)
+        if done:
             self.episodes += 1
 
     @property

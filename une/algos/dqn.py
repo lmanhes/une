@@ -103,7 +103,7 @@ class DQN:
         else:
             self.device = "cpu"
 
-        print("torch.get_num_threads : ", torch.get_num_threads())
+        # RAM explode otherwise
         torch.set_num_threads(1)
 
         self.memory_buffer = memory_buffer_cls(
@@ -143,6 +143,9 @@ class DQN:
         self.optimizer = None
 
         self.criterion = F.smooth_l1_loss
+
+        self._last_action = None
+        self._last_observation = None
 
     @property
     def networks(self):
@@ -208,14 +211,42 @@ class DQN:
 
         del params
 
-    def compute_loss(
+    def act(self, observation: np.ndarray, steps: int) -> int:
+        action = self.choose_action(observation=observation, steps=steps)
+        self._last_observation = observation
+        self._last_action = action
+        return action
+
+    def memorize(self, observation: np.ndarray, reward: float, done: bool) -> None:
+        assert self._last_observation is not None and self._last_action is not None
+
+        transition = Transition(
+            observation=self._last_observation,
+            action=self._last_action,
+            reward=reward,
+            done=done,
+            next_observation=observation,
+        )
+        self.memory_buffer.add(transition)
+
+    def compute_q_values(self, samples_from_memory: Transition):
+        # Get current Q-values estimates
+        # (batch_size, n_actions)
+        _, current_q_values = self.q_net(samples_from_memory.observation)
+
+        # Retrieve the q-values for the actions from the replay buffer
+        # (batch_size, 1)
+        current_q_values = torch.gather(
+            current_q_values, dim=1, index=samples_from_memory.action.long()
+        )
+        return current_q_values
+
+    def compute_target_q_values(
         self,
-        samples_from_memory: Union[
-            Transition, TransitionNStep, TransitionPER, TransitionNStepPER
-        ],
-        steps: int,
-        elementwise: bool = False,
-    ) -> torch.Tensor:
+        samples_from_memory: Transition,
+        intrinsic_reward: torch.Tensor = None,
+        intrinsic_reward_weight: float = 0.1,
+    ):
         with torch.no_grad():
             # Compute the next Q-values using the target network
             # (batch_size, n_actions)
@@ -232,21 +263,29 @@ class DQN:
             # (batch_size, 1)
             next_q_values = next_q_values.max(dim=1)[0].unsqueeze(1)
 
+            # augment reward with intrinsic reward if exists
+            reward = samples_from_memory.reward
+            if intrinsic_reward is not None:
+                reward += (intrinsic_reward * intrinsic_reward_weight)
+
             # 1-step TD target
             target_q_values = (
-                samples_from_memory.reward
+                reward
                 + (1 - samples_from_memory.done) * self.gamma * next_q_values
             )
+            return target_q_values
 
-        # Get current Q-values estimates
-        # (batch_size, n_actions)
-        _, current_q_values = self.q_net(samples_from_memory.observation)
-
-        # Retrieve the q-values for the actions from the replay buffer
-        # (batch_size, 1)
-        current_q_values = torch.gather(
-            current_q_values, dim=1, index=samples_from_memory.action.long()
-        )
+    def compute_loss(
+        self,
+        samples_from_memory: Union[
+            Transition, TransitionNStep, TransitionPER, TransitionNStepPER
+        ],
+        steps: int,
+        elementwise: bool = False,
+    ) -> torch.Tensor:
+        
+        current_q_values = self.compute_q_values(samples_from_memory=samples_from_memory)
+        target_q_values = self.compute_target_q_values(samples_from_memory=samples_from_memory)
 
         # Compute Huber loss (less sensitive to outliers)
         if elementwise:
