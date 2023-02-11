@@ -5,14 +5,17 @@ import torch
 import wandb
 
 from une.memories.buffer.abstract import AbstractBuffer
-from une.memories.buffer.uniform import Transition, TransitionNStep
-from une.memories.buffer.per import TransitionPER, TransitionNStepPER
+from une.memories.utils.transition import (
+    TransitionEpisodic,
+    TransitionNStepEpisodic,
+    TransitionNStepPEREpisodic,
+)
 from une.representations.abstract import AbstractRepresentation
 from une.algos.noisy_dqn import NoisyDQN
-from une.curiosity.icm import IntrinsicCuriosityModule
+from une.curiosity.lifelong_episodic import LifeLongEpisodicModule
 
 
-class ICMDQN(NoisyDQN):
+class NGUDQN(NoisyDQN):
     def __init__(
         self,
         observation_shape: Tuple[int],
@@ -40,6 +43,8 @@ class ICMDQN(NoisyDQN):
         intrinsic_reward_weight: float = 0.1,
         icm_features_dim: int = 256,
         icm_forward_loss_weight: float = 0.2,
+        ecm_memory_size: int = 300,
+        ecm_k: int = 10,
         **kwargs
     ):
         super().__init__(
@@ -70,35 +75,71 @@ class ICMDQN(NoisyDQN):
         self.intrinsic_reward_weight = intrinsic_reward_weight
         self.icm_features_dim = icm_features_dim
         self.icm_forward_loss_weight = icm_forward_loss_weight
+        self.ecm_memory_size = ecm_memory_size
+        self.ecm_k = ecm_k
 
-        self.icm = IntrinsicCuriosityModule(
+        self.lifelong_ecm = LifeLongEpisodicModule(
             encoder=self.q_net.representation_module,
             input_dim=self.features_dim,
             features_dim=self.icm_features_dim,
             actions_dim=n_actions,
+            episodic_memory_size=int(self.ecm_memory_size),
+            k=self.ecm_k,
             forward_loss_weight=self.icm_forward_loss_weight,
         ).to(self.device)
 
     @property
     def networks(self):
-        return [self.q_net, self.icm]
+        return [self.q_net, self.lifelong_ecm]
 
     def parameters(self):
-        return list(set(list(self.q_net.parameters()) + list(self.icm.parameters())))
+        return list(
+            set(list(self.q_net.parameters()) + list(self.lifelong_ecm.parameters()))
+        )
+
+    def act(self, observation: np.ndarray, steps: int) -> int:
+        action = self.choose_action(observation=observation, steps=steps)
+        self._last_observation = observation
+        self._last_action = action
+        return action
+
+    def memorize(self, observation: np.ndarray, reward: float, done: bool) -> None:
+        assert self._last_observation is not None and self._last_action is not None
+
+        if not isinstance(observation, (torch.Tensor, np.ndarray)):
+            observation = np.array(observation)
+        observation = torch.from_numpy(observation).unsqueeze(0).float().to(self.device)
+        episodic_reward = self.lifelong_ecm.get_episodic_reward(observation=observation)
+
+        transition = TransitionEpisodic(
+            observation=self._last_observation,
+            action=self._last_action,
+            reward=reward,
+            episodic_reward=episodic_reward,
+            done=done,
+            next_observation=observation,
+        )
+        self.memory_buffer.add(transition)
+
+        if done:
+            self.lifelong_ecm.reset()
 
     def compute_loss(
         self,
         samples_from_memory: Union[
-            Transition, TransitionNStep, TransitionPER, TransitionNStepPER
+            TransitionEpisodic,
+            TransitionNStepEpisodic,
+            TransitionNStepPEREpisodic,
         ],
         steps: int,
         elementwise: bool = False,
     ) -> torch.Tensor:
 
-        intrinsic_loss, intrinsic_reward = self.icm(
+        intrinsic_loss, intrinsic_reward = self.lifelong_ecm(
             observation=samples_from_memory.observation,
             next_observation=samples_from_memory.next_observation,
             action=samples_from_memory.action,
+            episodic_reward=samples_from_memory.episodic_reward,
         )
 
         wandb.log(

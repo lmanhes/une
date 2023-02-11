@@ -5,10 +5,16 @@ import torch.nn.functional as F
 
 class IntrinsicCuriosityModule(nn.Module):
     def __init__(
-        self, input_dim: int, features_dim: int, actions_dim: int, encoder: nn.Module
+        self,
+        input_dim: int,
+        features_dim: int,
+        actions_dim: int,
+        encoder: nn.Module,
+        forward_loss_weight: float,
     ):
         super(IntrinsicCuriosityModule, self).__init__()
         self.encoder = encoder
+        self.forward_loss_weight = forward_loss_weight
 
         self.inverse_net = nn.Sequential(
             nn.Linear(input_dim * 2, features_dim),
@@ -41,7 +47,10 @@ class IntrinsicCuriosityModule(nn.Module):
         next_state_pred = self.forward_net(torch.cat((state, action_ohot), 1))
         action_pred = self.inverse_net(torch.cat((state, next_state), 1))
 
-        return (
-            self.forward_criterion(next_state_pred, next_state, reduction="none"),
-            self.inverse_criterion(action_pred, action_ohot, reduction="none"),
-        )
+        forward_loss = self.forward_criterion(next_state_pred, next_state, reduction="none")
+        inverse_loss = self.inverse_criterion(action_pred, action_ohot, reduction="none")
+        intrinsic_loss = self.forward_loss_weight * forward_loss.mean() + (1 - self.forward_loss_weight) * inverse_loss.mean()
+
+        intrinsic_reward = forward_loss.clone().detach().mean(-1).reshape(-1, 1)
+
+        return intrinsic_loss, intrinsic_reward
