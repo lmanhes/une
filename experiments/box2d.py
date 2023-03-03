@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import wandb
 
-from une.agents.dqn import DQNAgent
+from une.agent import Agent
 from une.representations.tabular.mlp import GymMlp
 from experiments.utils import train, make_gym_env, seed_agent
 
@@ -18,37 +18,43 @@ env_name = "LunarLander-v2"
 env = make_gym_env(env_name=env_name, atari=False, video=True, seed=seed)
 
 config = {
-    "name": f"{env_name}",
+    "name": f"DQN_{env_name}",
     "features_dim": 64,
-    "target_update_interval_steps": 1e3,
-    "train_freq": 4,
-    "save_freq": 1e4,
-    "exploration_decay_eps_max_steps": 3e4,
-    "learning_rate": 5e-4,
+    "target_update_interval_steps": 1e2,
+    "train_freq": 1,
+    "save_freq": 5e4,
+    "warmup": 5e2,
+    "exploration_decay_eps_max_steps": 5e3,
+    "learning_rate": 1e-4,
     "gradient_steps": 1,
     "tau": 5e-3,
     "soft_update": True,
-    "buffer_size": int(1e5),
+    "buffer_size": int(1e4),
     "n_step": 3,
     "use_gpu": False,
-    "memory_buffer_type": "per",
+    "memory_buffer_type": 'uniform',
     "exploration": 'noisy',
-    "curiosity": 'ngu',
-    "intrinsic_reward_weight": 0.5,
+    "curiosity": 'icm',
+    "intrinsic_reward_weight": 0.01,
     "icm_features_dim": 64,
-    "icm_forward_loss_weight": 0.2,
+    "icm_forward_loss_weight": 0.5,
     "ecm_memory_size": 300,
-    "ecm_k": 10
+    "ecm_k": 10,
+    "recurrent": True,
+    "sequence_length": 20,
+    "burn_in": 10,
+    "over_lapping": 15,
+    "recurrent_dim": 64
 }
 
 seed_agent(seed=seed)
 
 if resume:
     run = wandb.init(id=run_id, project=env_name, resume=True)
-    agent = DQNAgent.load(path=f"{config['name']}.pt")
+    agent = Agent.load(path=f"{config['name']}.pt")
 else:
     run = wandb.init(project=env_name, config=config)
-    agent = DQNAgent(
+    agent = Agent(
         representation_module_cls=GymMlp,
         observation_shape=env.observation_space.shape,
         observation_dtype=env.observation_space.dtype,
