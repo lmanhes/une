@@ -20,6 +20,7 @@ class QNetwork(nn.Module):
         features_dim: int,
         action_dim: int,
         device: str = None,
+        **kwargs,
     ):
         super().__init__()
         self.device = device
@@ -118,7 +119,18 @@ class DQN:
             gamma=self.gamma,
         )
 
-        self.q_net = q_network_cls(
+        self.build_networks()
+
+        self.optimizer = None
+
+        self.criterion = F.smooth_l1_loss
+
+        self._last_action = None
+        self._last_observation = None
+
+    def build_networks(self):
+        print("BOTTOM")
+        self.q_net = self.q_network_cls(
             representation_module_cls=self.representation_module_cls,
             observation_shape=self.observation_shape,
             features_dim=self.features_dim,
@@ -127,7 +139,7 @@ class DQN:
         ).to(self.device)
 
         self.q_net_target = (
-            q_network_cls(
+            self.q_network_cls(
                 representation_module_cls=self.representation_module_cls,
                 observation_shape=self.observation_shape,
                 features_dim=self.features_dim,
@@ -139,13 +151,6 @@ class DQN:
         )
         self.hard_update_q_net_target()
         self.q_net_target.eval()
-
-        self.optimizer = None
-
-        self.criterion = F.smooth_l1_loss
-
-        self._last_action = None
-        self._last_observation = None
 
     @property
     def networks(self):
@@ -177,7 +182,7 @@ class DQN:
             return action.numpy()[0]
 
     def choose_random_action(self) -> int:
-        return np.random.choice(range(self.n_actions))
+        return np.array(np.random.choice(range(self.n_actions)))
 
     def choose_action(self, observation: torch.Tensor, steps: int) -> int:
         if np.random.random() > self.epsilon(steps):
@@ -211,11 +216,15 @@ class DQN:
 
         del params
 
-    def act(self, observation: np.ndarray, steps: int) -> int:
+    def act(self, observation: np.ndarray, steps: int, random: bool = True) -> int:
         action = self.choose_action(observation=observation, steps=steps)
         self._last_observation = observation
         self._last_action = action
         return action
+    
+    def reset(self):
+        self._last_observation = None
+        self._last_action = None
 
     def memorize(self, observation: np.ndarray, reward: float, done: bool) -> None:
         assert self._last_observation is not None and self._last_action is not None
@@ -266,12 +275,11 @@ class DQN:
             # augment reward with intrinsic reward if exists
             reward = samples_from_memory.reward
             if intrinsic_reward is not None:
-                reward += (intrinsic_reward * intrinsic_reward_weight)
+                reward += intrinsic_reward * intrinsic_reward_weight
 
             # 1-step TD target
             target_q_values = (
-                reward
-                + (1 - samples_from_memory.done) * self.gamma * next_q_values
+                reward + (1 - samples_from_memory.done) * self.gamma * next_q_values
             )
             return target_q_values
 
@@ -283,9 +291,13 @@ class DQN:
         steps: int,
         elementwise: bool = False,
     ) -> torch.Tensor:
-        
-        current_q_values = self.compute_q_values(samples_from_memory=samples_from_memory)
-        target_q_values = self.compute_target_q_values(samples_from_memory=samples_from_memory)
+
+        current_q_values = self.compute_q_values(
+            samples_from_memory=samples_from_memory
+        )
+        target_q_values = self.compute_target_q_values(
+            samples_from_memory=samples_from_memory
+        )
 
         # Compute Huber loss (less sensitive to outliers)
         if elementwise:

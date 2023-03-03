@@ -19,6 +19,7 @@ class NoisyQNetwork(nn.Module):
         features_dim: int,
         action_dim: int,
         device: str = None,
+        **kwargs,
     ):
         super().__init__()
         self.device = device
@@ -46,6 +47,7 @@ class NoisyDQN(DQN):
         n_actions: int,
         representation_module_cls: Type[AbstractRepresentation],
         memory_buffer_cls: Type[AbstractBuffer],
+        q_network_cls: Type[nn.Module] = NoisyQNetwork,
         gamma: float = 0.99,
         batch_size: int = 32,
         gradient_steps: int = 1,
@@ -68,7 +70,7 @@ class NoisyDQN(DQN):
             n_actions=n_actions,
             representation_module_cls=representation_module_cls,
             memory_buffer_cls=memory_buffer_cls,
-            q_network_cls=NoisyQNetwork,
+            q_network_cls=q_network_cls,
             gamma=gamma,
             batch_size=batch_size,
             gradient_steps=gradient_steps,

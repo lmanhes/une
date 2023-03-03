@@ -12,7 +12,7 @@ from experiments.utils import make_gym_env, train, seed_agent
 resume = False
 run_id = ""
 
-env_name = "PrivateEyeNoFrameskip-v4"
+env_name = "BreakoutNoFrameskip-v4"
 seed = 42
 env = make_gym_env(env_name, atari=True, video=True, seed=seed, n_frame_stack=4)
 print(env.observation_space.shape)
@@ -34,8 +34,8 @@ config = {
     "use_gpu": False,
     "memory_buffer_type": "per",
     "exploration": "noisy",
-    "curiosity": "ngu",
-    "intrinsic_reward_weight": 0.5,
+    "curiosity": "icm",
+    "intrinsic_reward_weight": 0.2,
     "icm_features_dim": 256,
     "icm_forward_loss_weight": 0.5,
     "ecm_memory_size": 3000,

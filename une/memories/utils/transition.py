@@ -7,6 +7,43 @@ Transition = namedtuple(
 )
 
 
+TransitionRecurrentIn = namedtuple(
+    "Transition",
+    field_names=[
+        "observation",
+        "h_recurrent",
+        "c_recurrent",
+        "action",
+        "reward",
+        "done",
+        "next_observation",
+        "next_h_recurrent",
+        "next_c_recurrent",
+        #"next_last_action"
+    ],
+)
+
+
+TransitionRecurrentOut = namedtuple(
+    "Transition",
+    field_names=[
+        "observation",
+        "h_recurrent",
+        "c_recurrent",
+        #"last_action",
+        #"last_reward",
+        "action",
+        "reward",
+        "done",
+        "next_observation",
+        "next_h_recurrent",
+        "next_c_recurrent",
+        #"next_last_action",
+        "lengths"
+    ],
+)
+
+
 TransitionEpisodic = namedtuple(
     "Transition",
     field_names=[

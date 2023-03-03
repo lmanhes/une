@@ -76,7 +76,7 @@ class ICMDQN(NoisyDQN):
             input_dim=self.features_dim,
             features_dim=self.icm_features_dim,
             actions_dim=n_actions,
-            forward_loss_weight=self.icm_forward_loss_weight,
+            forward_loss_weight=self.icm_forward_loss_weight
         ).to(self.device)
 
     @property
