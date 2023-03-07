@@ -59,12 +59,14 @@ def eval(
     episode_steps = 0
     episode_reward = 0
     start = time.time()
+    agent.reset()
 
     while not done:
         episode_steps += 1
         action = agent.act(observation=observation, evaluate=True)
         next_observation, reward, terminated, truncated, info = env.step(action)
         done = (terminated or truncated) or (episode_steps > max_episode_steps)
+
         episode_reward += reward
 
         observation = next_observation
@@ -101,6 +103,7 @@ def train(
         episode_steps = 0
         episode_reward = 0
         start = time.time()
+        agent.reset()
 
         while not done:
             episode_steps += 1

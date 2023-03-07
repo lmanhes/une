@@ -68,6 +68,7 @@ class Agent(object):
         burn_in: int = 40,
         over_lapping: int = 20,
         recurrent_dim: int = 256,
+        recurrent_init_strategy: str = "burnin",
         **kwargs,
     ):
         super().__init__()
@@ -148,6 +149,7 @@ class Agent(object):
             burn_in=burn_in,
             over_lapping=over_lapping,
             recurrent_dim=recurrent_dim,
+            recurrent_init_strategy=recurrent_init_strategy
         )
 
         self.name = name
@@ -163,7 +165,10 @@ class Agent(object):
         if not evaluate:
             self.steps += 1
 
-        action = self.algo.act(observation=observation, steps=self.steps, random=(self.steps < self.warmup) and not evaluate)
+        act_random = (self.steps < self.warmup) and not evaluate
+        if act_random:
+            print(f"Act random : {act_random} -- steps {self.steps}")
+        action = self.algo.act(observation=observation, steps=self.steps, random=act_random, evaluate=evaluate)
 
         if (
             not evaluate
