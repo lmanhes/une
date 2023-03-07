@@ -17,8 +17,8 @@ TransitionRecurrentIn = namedtuple(
         "reward",
         "done",
         "next_observation",
-        "next_h_recurrent",
-        "next_c_recurrent",
+        # "next_h_recurrent",
+        # "next_c_recurrent",
         #"next_last_action"
     ],
 )
@@ -36,8 +36,8 @@ TransitionRecurrentOut = namedtuple(
         "reward",
         "done",
         "next_observation",
-        "next_h_recurrent",
-        "next_c_recurrent",
+        # "next_h_recurrent",
+        # "next_c_recurrent",
         #"next_last_action",
         "lengths"
     ],

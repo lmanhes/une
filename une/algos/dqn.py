@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import wandb
 
 from une.memories.buffer.abstract import AbstractBuffer
 from une.memories.buffer.uniform import Transition, TransitionNStep
@@ -62,7 +63,7 @@ class DQN:
         use_gpu: bool = False,
         per_alpha: float = 0.7,
         per_beta: float = 0.4,
-        **kwargs
+        **kwargs,
     ):
         self.observation_shape = observation_shape
         self.observation_dtype = observation_dtype
@@ -107,7 +108,18 @@ class DQN:
         # RAM explode otherwise
         torch.set_num_threads(1)
 
-        self.memory_buffer = memory_buffer_cls(
+        self.build_memory()
+        self.build_networks()
+
+        self.optimizer = None
+
+        self.criterion = F.smooth_l1_loss
+
+        self._last_action = None
+        self._last_observation = None
+
+    def build_memory(self):
+        self.memory_buffer = self.memory_buffer_cls(
             buffer_size=self.buffer_size,
             n_step=self.n_step,
             observation_shape=self.observation_shape,
@@ -119,17 +131,7 @@ class DQN:
             gamma=self.gamma,
         )
 
-        self.build_networks()
-
-        self.optimizer = None
-
-        self.criterion = F.smooth_l1_loss
-
-        self._last_action = None
-        self._last_observation = None
-
     def build_networks(self):
-        print("BOTTOM")
         self.q_net = self.q_network_cls(
             representation_module_cls=self.representation_module_cls,
             observation_shape=self.observation_shape,
@@ -221,7 +223,7 @@ class DQN:
         self._last_observation = observation
         self._last_action = action
         return action
-    
+
     def reset(self):
         self._last_observation = None
         self._last_action = None
@@ -299,6 +301,14 @@ class DQN:
             samples_from_memory=samples_from_memory
         )
 
+        wandb.log(
+            {
+                "train_current_q_values": current_q_values.mean(),
+                "train_target_q_values": target_q_values.mean(),
+            },
+            step=steps,
+        )
+
         # Compute Huber loss (less sensitive to outliers)
         if elementwise:
             return self.criterion(
@@ -336,6 +346,11 @@ class DQN:
                     samples_from_memory=samples_from_memory, steps=steps
                 )
             losses.append(loss.item())
+
+            wandb.log(
+                {"train_loss": loss.item()},
+                step=steps,
+            )
 
             # Optimize the policy
             self.optimizer.zero_grad()

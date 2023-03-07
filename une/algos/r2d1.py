@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import wandb
 
 from une.algos.noisy_dqn import NoisyDQN, NoisyLinear
 from une.memories.buffer.abstract import AbstractBuffer
@@ -52,21 +53,35 @@ class RecurrentQNetwork(nn.Module):
         # )
         self.recurrent = nn.LSTM(features_dim, self.recurrent_dim, batch_first=True)
 
-        # self.q_net = nn.Sequential(
+        # self.advantage_head = nn.Sequential(
         #     OrderedDict(
         #         [
-        #             ("q_net1", NoisyLinear(recurrent_dim, recurrent_dim)),
-        #             ("relu1", nn.ReLU()),
-        #             ("q_net2", NoisyLinear(recurrent_dim, action_dim)),
+        #             ("a_noisy1", NoisyLinear(self.recurrent_dim, self.recurrent_dim)),
+        #             ("a_relu", nn.ReLU()),
+        #             ("a_noisy2", NoisyLinear(self.recurrent_dim, self.action_dim)),
         #         ]
         #     )
         # )
-        self.q_net = NoisyLinear(recurrent_dim, action_dim)
+        self.advantage_head = NoisyLinear(self.recurrent_dim, self.action_dim)
+
+        # self.value_head = nn.Sequential(
+        #     OrderedDict(
+        #         [
+        #             ("v_noisy1", NoisyLinear(self.recurrent_dim, self.recurrent_dim)),
+        #             ("v_relu", nn.ReLU()),
+        #             ("v_noisy2", NoisyLinear(self.recurrent_dim, 1)),
+        #         ]
+        #     )
+        # )
+        self.value_head = NoisyLinear(self.recurrent_dim, 1)
+
+    # self.q_net = NoisyLinear(recurrent_dim, action_dim)
 
     def reset_noise(self):
-        # self.q_net.q_net1.reset_noise()
-        # self.q_net.q_net2.reset_noise()
-        self.q_net.reset_noise()
+        self.advantage_head.reset_noise()
+        self.value_head.reset_noise()
+
+    # self.q_net.reset_noise()
 
     def init_recurrent(self, batch_size: int):
         return tuple(torch.zeros(1, batch_size, self.recurrent_dim) for _ in range(2))
@@ -74,8 +89,8 @@ class RecurrentQNetwork(nn.Module):
     def forward(
         self,
         observation: torch.Tensor,
-        #last_action: torch.Tensor,
-        #last_reward: torch.Tensor,
+        # last_action: torch.Tensor,
+        # last_reward: torch.Tensor,
         lengths: List[int] = None,
         h_recurrent: torch.Tensor = None,
         c_recurrent: torch.Tensor = None,
@@ -99,10 +114,20 @@ class RecurrentQNetwork(nn.Module):
         # print("obs state : ", x.shape)
         x = x.view(-1, sequence_size, self.features_dim)
         # print("obs state reshaped : ", x.shape)
-        #x = torch.cat((x, last_action_ohot, last_reward), dim=-1)
+        # x = torch.cat((x, last_action_ohot, last_reward), dim=-1)
         x, (h_recurrent, c_recurrent) = self.recurrent(x, (h_recurrent, c_recurrent))
         # print("recurrent out : ", x.shape, h_recurrent.shape)
-        q_values = self.q_net(x)
+
+        x = torch.flatten(x, 0, 1)  # Merge batch and time dimension.
+        advantages = self.advantage_head(x)  # [T*B, action_dim]
+        values = self.value_head(x)  # [T*B, 1]
+
+        q_values = values + (advantages - torch.mean(advantages, dim=1, keepdim=True))
+        q_values = q_values.view(
+            batch_size, sequence_size, -1
+        )  # reshape to in the range [B, T, action_dim]
+
+        # q_values = self.q_net(x)
         # print("q_values : ", q_values.shape)
         return q_values, (h_recurrent, c_recurrent)
 
@@ -137,12 +162,16 @@ class R2D1(NoisyDQN):
         burn_in: int = 40,
         over_lapping: int = 20,
         recurrent_dim: int = 256,
-        **kwargs
+        recurrent_init_strategy: str = "burnin",
+        **kwargs,
     ):
         self.recurrent_dim = recurrent_dim
         self.sequence_length = sequence_length
         self.burn_in = burn_in
         self.over_lapping = over_lapping
+        self.recurrent_init_strategy = recurrent_init_strategy
+
+        logger.info(f"recurrent_init_strategy : {recurrent_init_strategy}")
 
         super().__init__(
             observation_shape=observation_shape,
@@ -167,7 +196,17 @@ class R2D1(NoisyDQN):
             per_beta=per_beta,
         )
 
-        self.memory_buffer = memory_buffer_cls(
+        self._last_action = None
+        self._last_observation = None
+        self._last_reward = None
+        self._last_h_recurrent, self._last_c_recurrent = self.q_net.init_recurrent(
+            batch_size=1
+        )
+        self._h_recurrent = None
+        self._c_recurrent = None
+
+    def build_memory(self):
+        self.memory_buffer = self.memory_buffer_cls(
             buffer_size=self.buffer_size,
             n_step=self.n_step,
             observation_shape=self.observation_shape,
@@ -182,18 +221,6 @@ class R2D1(NoisyDQN):
             over_lapping=self.over_lapping,
             recurrent_dim=self.recurrent_dim,
         )
-
-        self._last_action = None
-        self._last_observation = None
-        self._last_reward = None
-        self._last_h_recurrent, self._last_c_recurrent = self.q_net.init_recurrent(
-            batch_size=1
-        )
-        self._h_recurrent = None
-        self._c_recurrent = None
-
-        for param_name, param_value in self.__dict__.copy().items():
-            print(param_name, param_value)
 
     def build_networks(self):
         self.q_net = self.q_network_cls(
@@ -261,6 +288,12 @@ class R2D1(NoisyDQN):
             #     .to(self.device)
             # )
 
+            # if self._last_h_recurrent is not None:
+            #     print(self._last_h_recurrent.shape, self._last_h_recurrent, np.zeros_like(self._last_h_recurrent).shape)
+            #     print("RECURRENT ZERTOS : ", not np.array_equal(self._last_h_recurrent, np.zeros_like(self._last_h_recurrent)))
+            # else:
+            #     print("RECURRENT ZERTOS None: ")
+
             current_q_values, (h_recurrent, c_recurrent) = self.q_net(
                 observation=observation,
                 # last_action=last_action,
@@ -273,21 +306,25 @@ class R2D1(NoisyDQN):
             if self.device in ["cuda", "mps"]:
                 action = action.cpu()
             action = action.numpy()
-            return action, (h_recurrent, c_recurrent)
-
-    def act(self, observation: np.ndarray, steps: int, random: bool = False) -> int:
+            return action, (h_recurrent.detach(), c_recurrent.detach())
+        
+    def act(self, observation: np.ndarray, steps: int, random: bool = False, evaluate: bool = False) -> int:
         if random:
             action = self.choose_random_action()
             self._h_recurrent = self._last_h_recurrent
             self._c_recurrent = self._last_c_recurrent
         else:
-            action, (h_recurrent, c_recurrent) = self.choose_action(
-                observation=observation, steps=steps
+            action, (h_recurrent, c_recurrent) = self.choose_greedy_action(
+                observation=observation
             )
             self._h_recurrent = h_recurrent.detach().clone()
             self._c_recurrent = c_recurrent.detach().clone()
+            
         self._last_observation = observation
         self._last_action = action
+        if evaluate:
+            self._last_h_recurrent = self._h_recurrent
+            self._last_c_recurrent = self._c_recurrent
         return action
 
     def reset(self):
@@ -313,9 +350,9 @@ class R2D1(NoisyDQN):
             reward=reward,
             done=done,
             next_observation=observation,
-            next_h_recurrent=self._h_recurrent.numpy(),
-            next_c_recurrent=self._c_recurrent.numpy(),
-            #next_last_action=self._last_action,
+            #next_h_recurrent=self._h_recurrent.numpy(),
+            #next_c_recurrent=self._c_recurrent.numpy(),
+            # next_last_action=self._last_action,
         )
         self.memory_buffer.add(transition)
 
@@ -330,9 +367,10 @@ class R2D1(NoisyDQN):
     def get_first_step_recurrent(
         self, h_recurrent: torch.Tensor = None, c_recurrent: torch.Tensor = None
     ):
-        batch_size = h_recurrent.shape[0]
-        h_recurrent = h_recurrent[:, 0, :].view(1, batch_size, -1).detach()
-        c_recurrent = c_recurrent[:, 0, :].view(1, batch_size, -1).detach()
+        h_recurrent = h_recurrent[:, 0:1, :]
+        c_recurrent = c_recurrent[:, 0:1, :]
+        h_recurrent = h_recurrent.swapaxes(0, 1)
+        c_recurrent = c_recurrent.swapaxes(0, 1)
         return (h_recurrent, c_recurrent)
 
     def burn_in_unroll(
@@ -355,16 +393,24 @@ class R2D1(NoisyDQN):
         # print(
         #     "output unroll : ", h_recurrent, h_recurrent.shape, np.array_equal(h_recurrent[0, 0, :], h_recurrent[0, 17, :])
         # )
-        return (h_recurrent.detach(), c_recurrent.detach())
+        return (h_recurrent, c_recurrent)
 
     def compute_q_values(
         self,
         learning_samples: TransitionRecurrentOut,
         burnin_samples: TransitionRecurrentOut = None,
     ):
-        # Get current Q-values estimates
-        # (batch_size, n_actions)
-        if burnin_samples:
+        if self.recurrent_init_strategy == "zeros":
+            h_recurrent, c_recurrent = self.q_net.init_recurrent(
+                batch_size=learning_samples.observation.shape[0]
+            )
+        elif self.recurrent_init_strategy == "first":
+            h_recurrent, c_recurrent = self.get_first_step_recurrent(
+                h_recurrent=learning_samples.h_recurrent,
+                c_recurrent=learning_samples.c_recurrent,
+            )
+        else:
+            assert burnin_samples is not None
             h_recurrent, c_recurrent = self.get_first_step_recurrent(
                 h_recurrent=burnin_samples.h_recurrent,
                 c_recurrent=burnin_samples.c_recurrent,
@@ -375,11 +421,6 @@ class R2D1(NoisyDQN):
                 c_recurrent=c_recurrent,
                 # last_action=burnin_samples.last_action,
                 # last_reward=burnin_samples.last_reward,
-            )
-        else:
-            h_recurrent, c_recurrent = self.get_first_step_recurrent(
-                h_recurrent=learning_samples.h_recurrent,
-                c_recurrent=learning_samples.c_recurrent,
             )
 
         current_q_values, _ = self.q_net(
@@ -395,7 +436,7 @@ class R2D1(NoisyDQN):
         current_q_values = torch.gather(
             current_q_values, dim=-1, index=learning_samples.action.long()
         )
-        return current_q_values
+        return current_q_values.squeeze(-1)
 
     def compute_target_q_values(
         self,
@@ -404,22 +445,27 @@ class R2D1(NoisyDQN):
         intrinsic_reward: torch.Tensor = None,
         intrinsic_reward_weight: float = 0.1,
     ):
-        if burnin_samples:
+        if self.recurrent_init_strategy == "zeros":
+            h_recurrent, c_recurrent = self.q_net.init_recurrent(
+                batch_size=learning_samples.next_observation.shape[0]
+            )
+        elif self.recurrent_init_strategy == "first":
             h_recurrent, c_recurrent = self.get_first_step_recurrent(
-                h_recurrent=burnin_samples.next_h_recurrent,
-                c_recurrent=burnin_samples.next_c_recurrent,
+                h_recurrent=learning_samples.h_recurrent,
+                c_recurrent=learning_samples.c_recurrent,
+            )
+        else:
+            assert burnin_samples is not None
+            h_recurrent, c_recurrent = self.get_first_step_recurrent(
+                h_recurrent=burnin_samples.h_recurrent,
+                c_recurrent=burnin_samples.c_recurrent,
             )
             h_recurrent, c_recurrent = self.burn_in_unroll(
                 observation=burnin_samples.next_observation,
                 h_recurrent=h_recurrent,
                 c_recurrent=c_recurrent,
-                # last_action=burnin_samples.next_last_action,
-                # last_reward=burnin_samples.reward,
-            )
-        else:
-            h_recurrent, c_recurrent = self.get_first_step_recurrent(
-                h_recurrent=learning_samples.next_h_recurrent,
-                c_recurrent=learning_samples.next_c_recurrent,
+                # last_action=burnin_samples.last_action,
+                # last_reward=burnin_samples.last_reward,
             )
 
         with torch.no_grad():
@@ -437,27 +483,24 @@ class R2D1(NoisyDQN):
 
             # DQN : Follow greedy policy: use the one with the highest value
             # (batch_size, 1)
-            # target_q_values = target_q_values.max(dim=-1)[0].unsqueeze(-1)
+            target_q_values = target_q_values.max(dim=-1)[0].unsqueeze(-1)
 
             # R2D1 : use best actions of Q_net for 'next_observation'
-            target_actions = torch.argmax(
-                self.q_net(
-                    observation=learning_samples.next_observation,
-                    h_recurrent=h_recurrent,
-                    c_recurrent=c_recurrent,
-                    # last_action=learning_samples.next_last_action,
-                    # last_reward=learning_samples.reward,
-                )[0],
-                dim=-1,
-            ).unsqueeze(-1)
-            # print("target actions : ", target_actions.shape, target_q_values.shape)
-            target_q_values = torch.gather(
-                target_q_values, dim=-1, index=target_actions.long()
-            )
-            target_q_values = signed_parabolic(target_q_values, 0.001)
+            # target_actions = torch.argmax(
+            #     self.q_net(
+            #         observation=learning_samples.next_observation,
+            #         h_recurrent=h_recurrent.clone(),
+            #         c_recurrent=c_recurrent.clone(),
+            #         # last_action=learning_samples.next_last_action,
+            #         # last_reward=learning_samples.reward,
+            #     )[0],
+            #     dim=-1,
+            # ).unsqueeze(-1)
+            # # # print("target actions : ", target_actions.shape, target_q_values.shape)
             # target_q_values = torch.gather(
-            #    target_q_values, dim=-1, index=target_actions.long()
+            #     target_q_values, dim=-1, index=target_actions.long()
             # )
+            target_q_values = signed_parabolic(target_q_values, 0.001)
 
             # augment reward with intrinsic reward if exists
             # reward = samples_from_memory.reward[:, self.burn_in :]
@@ -472,50 +515,63 @@ class R2D1(NoisyDQN):
             target_q_values = (
                 reward + (1 - learning_samples.done) * self.gamma * target_q_values
             )
-            return signed_hyperbolic(target_q_values, 0.001)
+            #return target_q_values.squeeze(-1)
+            return signed_hyperbolic(target_q_values, 0.001).squeeze(-1)
 
     def compute_loss(
         self,
-        samples_from_memory: Union[TransitionRecurrentOut, TransitionRecurrentOut],
+        samples_from_memory: TransitionRecurrentOut,
         steps: int,
         elementwise: bool = False,
     ) -> torch.Tensor:
 
-        burnin_samples, learning_samples = self.memory_buffer.split_burnin(
-            samples_from_memory
+        # print("lengths : ", samples_from_memory.lengths, samples_from_memory.lengths.shape)
+        if self.recurrent_init_strategy == "burnin":
+            burnin_samples, learning_samples = self.memory_buffer.split_burnin(
+                samples_from_memory
+            )
+            current_q_values = self.compute_q_values(
+                learning_samples=learning_samples, burnin_samples=burnin_samples
+            )
+            target_q_values = self.compute_target_q_values(
+                learning_samples=learning_samples, burnin_samples=burnin_samples
+            )
+        else:
+            current_q_values = self.compute_q_values(
+                learning_samples=samples_from_memory
+            )
+            target_q_values = self.compute_target_q_values(
+                learning_samples=samples_from_memory
+            )
+
+        # current_q_values = current_q_values[:, :samples_from_memory.lengths.reshape(-1, 1)]
+        # target_q_values = target_q_values[:, :samples_from_memory.lengths.reshape(-1, 1)]
+
+        # Sums over time dimension.
+        # td_error = current_q_values - target_q_values.detach()
+        # loss = 0.5 * torch.sum(torch.square(td_error), dim=1)
+        # loss = td_error**2
+        # loss = torch.mean(0.5 * torch.square(td_error))
+        # print("current_q_values : ", current_q_values.shape)
+        loss = self.criterion(current_q_values, target_q_values)
+
+        wandb.log(
+            {
+                "train_current_q_values": current_q_values.mean(),
+                "train_target_q_values": target_q_values.mean(),
+                # "train_td_error": td_error.mean(),
+            },
+            step=steps,
         )
 
-        current_q_values = self.compute_q_values(
-            learning_samples=learning_samples, burnin_samples=burnin_samples
-        )
-        target_q_values = self.compute_target_q_values(
-            learning_samples=learning_samples, burnin_samples=burnin_samples
-        )
+        # print("loss : ", loss.shape)
 
-        #print("q_values : ", current_q_values.shape, target_q_values.shape)
-
-        td_error = target_q_values - current_q_values
-        loss = 0.5 * torch.sum(torch.square(td_error), dim=0)
-
-        #print("loss : ", loss.shape)
-
-        #loss = torch.mean(loss * weights.detach())
-        return loss.mean()
-
-        # # Compute Huber loss (less sensitive to outliers)
-        # if elementwise:
-        #     return self.criterion(
-        #         current_q_values.squeeze(1),
-        #         target_q_values.squeeze(1),
-        #         reduction="none",
-        #     )
-        # else:
-        #     return self.criterion(
-        #         current_q_values.squeeze(1), target_q_values.squeeze(1)
-        #     )
-        #return loss
+        # loss = torch.mean(loss * weights.detach())
+        return loss
 
     def learn(self, steps: int) -> float:
+        if self.memory_buffer.n_sequences < self.batch_size:
+            return 0
         loss = super().learn(steps)
         self.q_net.reset_noise()
         self.q_net_target.reset_noise()
