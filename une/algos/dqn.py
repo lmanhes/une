@@ -1,6 +1,7 @@
 from copy import deepcopy
 from typing import Tuple, Union, Type, List, Dict, Any
 
+from loguru import logger
 import numpy as np
 import torch
 import torch.nn as nn
@@ -126,8 +127,8 @@ class DQN:
             observation_dtype=self.observation_dtype,
             device=self.device,
             gradient_steps=self.gradient_steps,
-            per_alpha=self.per_alpha,
-            per_beta=self.per_beta,
+            alpha=self.per_alpha,
+            beta=self.per_beta,
             gamma=self.gamma,
         )
 
@@ -218,7 +219,7 @@ class DQN:
 
         del params
 
-    def act(self, observation: np.ndarray, steps: int, random: bool = True) -> int:
+    def act(self, observation: np.ndarray, steps: int, random: bool = True, evaluate: bool = False) -> int:
         action = self.choose_action(observation=observation, steps=steps)
         self._last_observation = observation
         self._last_action = action

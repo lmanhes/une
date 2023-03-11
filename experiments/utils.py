@@ -60,7 +60,7 @@ def eval(
     episode_reward = 0
     start = time.time()
     agent.reset()
-
+    
     while not done:
         episode_steps += 1
         action = agent.act(observation=observation, evaluate=True)

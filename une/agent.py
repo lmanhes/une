@@ -22,6 +22,7 @@ from une.memories.buffer.episodic import (
 from une.memories.buffer.sequence import (
     SequenceUniformBuffer,
     NStepSequenceUniformBuffer,
+    NStepSequencePERBuffer
 )
 
 
@@ -75,7 +76,10 @@ class Agent(object):
         if recurrent:
             algo_cls = R2D1
             if n_step > 1:
-                memory_buffer_cls = NStepSequenceUniformBuffer
+                if memory_buffer_type == "per":
+                    memory_buffer_cls = NStepSequencePERBuffer
+                else:
+                    memory_buffer_cls = NStepSequenceUniformBuffer
             else:
                 memory_buffer_cls = SequenceUniformBuffer
         else:
@@ -194,7 +198,6 @@ class Agent(object):
     @property
     def epsilon(self) -> float:
         return self.algo.epsilon(steps=self.steps)
-
 
     @property
     def _excluded_save_params(self) -> List[str]:

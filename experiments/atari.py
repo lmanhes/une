@@ -5,14 +5,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import wandb
 
 from une.representations.vision.atari_cnn import AtariCnn
-from une.agents.dqn import DQNAgent
+from une.agent import Agent
 from experiments.utils import make_gym_env, train, seed_agent
 
 
 resume = False
 run_id = ""
 
-env_name = "BreakoutNoFrameskip-v4"
+env_name = "PongNoFrameskip-v4"
 seed = 42
 env = make_gym_env(env_name, atari=True, video=True, seed=seed, n_frame_stack=4)
 print(env.observation_space.shape)
@@ -22,7 +22,7 @@ config = {
     "features_dim": 512,
     "target_update_interval_steps": 1e3,
     "train_freq": 4,
-    "warmup": 2e4,
+    "warmup": 0,
     "save_freq": 1e4,
     "exploration_decay_eps_max_steps": 1e6,
     "learning_rate": 1e-4,
@@ -34,7 +34,7 @@ config = {
     "use_gpu": False,
     "memory_buffer_type": "per",
     "exploration": "noisy",
-    "curiosity": "icm",
+    "curiosity": None,
     "intrinsic_reward_weight": 0.2,
     "icm_features_dim": 256,
     "icm_forward_loss_weight": 0.5,
@@ -46,7 +46,7 @@ seed_agent(seed=seed)
 
 if resume:
     wandb.init(id=run_id, project=env_name, resume=True)
-    agent = DQNAgent(
+    agent = Agent(
         representation_module_cls=AtariCnn,
         observation_shape=env.observation_space.shape,
         observation_dtype=env.observation_space.dtype,
@@ -57,7 +57,7 @@ if resume:
     ).load(path=f"artifacts/{config['name']}.pt")
 else:
     wandb.init(project=env_name, config=config)
-    agent = DQNAgent(
+    agent = Agent(
         representation_module_cls=AtariCnn,
         observation_shape=env.observation_space.shape,
         observation_dtype=env.observation_space.dtype,
