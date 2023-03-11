@@ -23,9 +23,9 @@ config = {
     "target_update_interval_steps": 1e2,
     "train_freq": 1,
     "save_freq": 5e4,
-    "warmup": 1e3,
-    "gamma": 0.997,
-    "max_grad_norm": 0.5,
+    "warmup": 0,
+    "gamma": 0.99,
+    "max_grad_norm": 10,
     "exploration_decay_eps_max_steps": 5e3,
     "learning_rate":5e-4,
     "gradient_steps": 1,
@@ -42,14 +42,16 @@ config = {
     "icm_forward_loss_weight": 0.5,
     "ecm_memory_size": 300,
     "ecm_k": 10,
-    "recurrent": True,
+    "recurrent": False,
     "sequence_length": 5,
     "burn_in": 0,
     "over_lapping": 3,
     "recurrent_dim": 64,
-    "recurrent_init_strategy": "zeros"
+    "recurrent_init_strategy": "first",
+    "per_alpha": 0.9,
+    "per_beta": 0.6,
+    "batch_size": 32
 }
-
 seed_agent(seed=seed)
 
 if resume:

@@ -20,13 +20,13 @@ config = {
     "save_freq": 5e4,
     "warmup": 0,
     "gamma": 0.997,
-    "max_grad_norm": 0.5,
+    "max_grad_norm": 10,
     "exploration_decay_eps_max_steps": 5e3,
     "learning_rate":5e-4,
     "gradient_steps": 1,
     "tau": 5e-3,
     "soft_update": True,
-    "buffer_size": int(1e6),
+    "buffer_size": int(1e5),
     "n_step": 3,
     "use_gpu": False,
     "memory_buffer_type": 'per',
@@ -42,7 +42,10 @@ config = {
     "burn_in": 2,
     "over_lapping": 3,
     "recurrent_dim": 64,
-    "recurrent_init_strategy": "burnin"
+    "recurrent_init_strategy": "burnin",
+    "per_alpha": 0.9,
+    "per_beta": 0.6,
+    "batch_size": 32
 }
 
 seed_agent(seed=seed)

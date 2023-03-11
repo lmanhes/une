@@ -6,12 +6,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from une.memories.buffer.sequence import SequenceUniformBuffer
 from une.representations.vision.atari_cnn import AtariCnn
+from une.representations.tabular.mlp import GymMlp
 from une.algos.r2d1 import R2D1
 from experiments.utils import make_gym_env
 
-env_name = "PongNoFrameskip-v4"
+#env_name = "PongNoFrameskip-v4"
+env_name = "LunarLander-v2"
 seed = 42
-env = make_gym_env(env_name, atari=True, video=False, seed=seed, n_frame_stack=4)
+#env = make_gym_env(env_name, atari=True, video=False, seed=seed, n_frame_stack=4)
+env = make_gym_env(env_name=env_name, atari=False, video=True, seed=seed)
 print(env.observation_space.shape)
 
 # sequence_buffer = SequenceUniformBuffer(
@@ -33,7 +36,7 @@ print(env.observation_space.shape)
 # )
 
 r2d1 = R2D1(
-    representation_module_cls=AtariCnn,
+    representation_module_cls=GymMlp,
     observation_shape=env.observation_space.shape,
     observation_dtype=env.observation_space.dtype,
     features_dim=512,
@@ -43,7 +46,8 @@ r2d1 = R2D1(
     buffer_size=100000,
     sequence_length=5,
     burn_in=5,
-    over_lapping=2,
+    over_lapping=8,
+    recurrent_init_strategy="burnin"
 )
 
 for episode in range(5):
@@ -67,6 +71,8 @@ for episode in range(5):
 
         r2d1.memorize(observation=next_observation, reward=reward, done=done)
 
+        print(f"Episode : {episode} / Step {episode_step} -- Memory : ", len(r2d1.memory_buffer), len(r2d1.memory_buffer.sequence_tracker))
+
         observation = next_observation
     
     print(f"\nEPISODE {episode} -- {episode_step} steps")
@@ -77,10 +83,15 @@ batch = r2d1.memory_buffer.sample(batch_size=20, to_tensor=True)
 print(batch.observation.shape, batch.action.shape, batch.h_recurrent.shape)
 # r2d1.learn(steps=1)
 print(np.array_equal(batch.h_recurrent[12], batch.h_recurrent[17]))
+print(np.array_equal(batch.h_recurrent[17], batch.h_recurrent[0]))
+print(np.array_equal(batch.h_recurrent[0], batch.h_recurrent[4]))
+print(np.array_equal(batch.h_recurrent[4], batch.h_recurrent[2]))
+print(np.array_equal(batch.h_recurrent[2], batch.h_recurrent[15]))
+print(np.array_equal(batch.h_recurrent[15], batch.h_recurrent[12]))
+print(batch.h_recurrent[12])
 
 #batch_q_values = r2d1.compute_q_values(batch)
 #print("BATCH Q VALUES : ", batch_q_values.shape)
 
-print(r2d1.memory_buffer.sequence_tracker.sequences[0])
-print(r2d1.memory_buffer.sequence_tracker.sequences[1])
-print(r2d1.memory_buffer.sequence_tracker.sequences[2])
+for s_idx in range(30):
+    print(r2d1.memory_buffer.sequence_tracker.sequences[s_idx])
