@@ -336,7 +336,7 @@ class R2D1(NoisyDQN):
         self._last_c_recurrent = self._c_recurrent
 
         if done:
-           self.reset()
+            self.reset()
 
     def get_first_step_recurrent(
         self, h_recurrent: torch.Tensor = None, c_recurrent: torch.Tensor = None
@@ -395,7 +395,7 @@ class R2D1(NoisyDQN):
                 # last_reward=burnin_samples.last_reward,
             )
 
-        # h_recurrent, c_recurrent = h_recurrent.detach(), c_recurrent.detach()
+        h_recurrent, c_recurrent = h_recurrent.detach(), c_recurrent.detach()
 
         current_q_values, _ = self.q_net(
             observation=learning_samples.observation,
@@ -440,7 +440,7 @@ class R2D1(NoisyDQN):
                 c_recurrent=c_recurrent,
             )
 
-        # h_recurrent, c_recurrent = h_recurrent.detach(), c_recurrent.detach()
+        h_recurrent, c_recurrent = h_recurrent.detach(), c_recurrent.detach()
 
         with torch.no_grad():
             # Compute the next Q-values using the target network
@@ -453,8 +453,18 @@ class R2D1(NoisyDQN):
             )
             # logger.info(f"target_q_values : {target_q_values.shape}")
 
-            target_q_value = target_q_values.max(dim=-1)[0].unsqueeze(-1)
+            #target_q_value = target_q_values.max(dim=-1)[0].unsqueeze(-1)
             # logger.info(f"target_q_value : {target_q_value.shape}")
+
+            next_q_values, _ = self.q_net(
+                observation=learning_samples.next_observation,
+                h_recurrent=h_recurrent,
+                c_recurrent=c_recurrent,
+            )
+            next_action = next_q_values.argmax(-1)
+            target_q_value = torch.gather(
+                target_q_values, dim=-1, index=next_action.unsqueeze(-1).long()
+            )
 
         target_q_value = signed_parabolic(target_q_value, 0.001)
 
@@ -524,7 +534,7 @@ class R2D1(NoisyDQN):
         if self.memory_buffer_cls == NStepSequencePERBuffer:
             # masking
             for idx, length in enumerate(learning_samples.lengths):
-               loss[idx, int(length) :] *= 0
+                loss[idx, int(length) :] *= 0
             loss = torch.sum(loss, dim=1)
             loss = torch.mean(loss * learning_samples.weights.detach())  #
         else:

@@ -42,7 +42,7 @@ config = {
     "burn_in": 2,
     "over_lapping": 3,
     "recurrent_dim": 64,
-    "recurrent_init_strategy": "burnin",
+    "recurrent_init_strategy": "first",
     "per_alpha": 0.9,
     "per_beta": 0.6,
     "batch_size": 32
