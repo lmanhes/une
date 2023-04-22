@@ -1,13 +1,12 @@
 from typing import Tuple, List, Union
 
-from loguru import logger
 import numpy as np
 import torch
 
-from une.memories.buffer.uniform import UniformBuffer
-from une.memories.buffer.nstep import NStep
+from une.memories.buffers.uniform import UniformBuffer
+from une.memories.buffers.nstep import NStep
 from une.memories.utils.segment_tree import SumSegmentTree, MinSegmentTree
-from une.memories.utils.transition import Transition, TransitionPER, TransitionNStepPER
+from une.memories.transitions import Transition, PERTransition, NStepPERTransition
 
 
 class PERBuffer(UniformBuffer):
@@ -59,14 +58,14 @@ class PERBuffer(UniformBuffer):
     def sample_idxs(self, batch_size: int) -> Union[np.ndarray, List[int]]:
         return self._sample_proportional(batch_size=batch_size)
     
-    def sample_transitions(self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False) -> TransitionPER:
+    def sample_transitions(self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False) -> PERTransition:
         transition = super().sample_transitions(indices, to_tensor)
 
         weights = np.array([self._calculate_weight(i, self.beta) for i in indices])
         if to_tensor:
             weights = torch.from_numpy(weights).float().to(self.device)
 
-        return TransitionPER(
+        return PERTransition(
             observation=transition.observation,
             action=transition.action,
             reward=transition.reward,
@@ -151,7 +150,7 @@ class NStepPERBuffer(PERBuffer, NStep):
 
     def sample_transitions(
         self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False
-    ) -> TransitionNStepPER:
+    ) -> NStepPERTransition:
         transition = super().sample_transitions(indices=indices, to_tensor=to_tensor)
 
         next_observations = self.observations[(np.array(indices)+1) % self.buffer_size]
@@ -164,7 +163,7 @@ class NStepPERBuffer(PERBuffer, NStep):
                 torch.from_numpy(next_nstep_observations).float().to(self.device)
             )
 
-        return TransitionNStepPER(
+        return NStepPERTransition(
             observation=transition.observation,
             action=transition.action,
             reward=transition.reward,

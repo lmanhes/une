@@ -1,4 +1,5 @@
 from collections import deque
+from dataclasses import fields
 import psutil
 from typing import Tuple, List, Union
 
@@ -6,15 +7,9 @@ from loguru import logger
 import numpy as np
 import torch
 
-from une.memories.buffer.abstract import AbstractBuffer
+from une.memories.buffers.abstract import AbstractBuffer
 from une.memories.utils.segment_tree import SumSegmentTree, MinSegmentTree
-from une.memories.utils.transition import (
-    TransitionRecurrentIn,
-    TransitionRecurrentOut,
-    TransitionRecurrentPEROut,
-    TransitionNStepRecurrentOut,
-    TransitionEpisodicRecurrentIn
-)
+from une.memories.transitions import RecurrentTransition, NStepRecurrentTransition, NStepPERRecurrentTransition
 
 
 class SequenceTracker(object):
@@ -41,13 +36,10 @@ class SequenceTracker(object):
         self.buffer.append(pos)
 
         if done:
-            #logger.info(f"Add sequence {len(self.sequences)+1} with idxs : {self.buffer} -- DONE no overlap")
             self.sequences.append(self.buffer)
             self.buffer = []
             
         elif (len(self.buffer) == self.sequence_size):
-            #logger.info(f"Add sequence of length {len(self.buffer)}")
-            #logger.info(f"Add sequence {len(self.sequences)+1} with idxs : {self.buffer} -- FULL with overlap")
             self.sequences.append(self.buffer)
             if self.over_lapping > 0:
                 self.buffer = self.buffer[-self.over_lapping:]
@@ -62,12 +54,10 @@ class SequenceTracker(object):
 
         indices = self.sample_idxs(batch_size=batch_size)
         sequences_idxs = [self.sequences[i] for i in indices]
-        #logger.info(f"Indices : {indices}")
-        #logger.info(f"Sequences idxs : {sequences_idxs}")
         return sequences_idxs
 
 
-class SequenceUniformBuffer(AbstractBuffer):
+class RecurrentUniformBuffer(AbstractBuffer):
 
     def __init__(
         self,
@@ -110,7 +100,6 @@ class SequenceUniformBuffer(AbstractBuffer):
         )
         self.next_h_recurrents = np.zeros((self.buffer_size, recurrent_dim))
         self.next_c_recurrents = np.zeros((self.buffer_size, recurrent_dim))
-        #self.next_last_actions = np.zeros((self.buffer_size, 1))
 
         self.pos = 0
         self.full = False
@@ -139,7 +128,6 @@ class SequenceUniformBuffer(AbstractBuffer):
             + self.next_observations.nbytes
             + self.next_h_recurrents.nbytes
             + self.next_c_recurrents.nbytes
-            #+ self.next_last_actions.nbytes
         )
 
         logger.info(
@@ -155,7 +143,7 @@ class SequenceUniformBuffer(AbstractBuffer):
                 f"replay buffer {total_memory_usage:.2f}GB > {mem_available:.2f}GB"
             )
 
-    def add(self, transition: TransitionRecurrentIn):
+    def add(self, transition: RecurrentTransition):
         self.sequence_tracker.add(self.pos, transition.done)
 
         self.observations[self.pos] = np.array(transition.observation).copy()
@@ -166,7 +154,6 @@ class SequenceUniformBuffer(AbstractBuffer):
         self.next_observations[self.pos] = np.array(transition.next_observation).copy()
         self.next_h_recurrents[self.pos] = np.array(transition.next_h_recurrent).copy()
         self.next_c_recurrents[self.pos] = np.array(transition.next_c_recurrent).copy()
-        #self.next_last_actions[self.pos] = np.array(transition.next_last_action).copy()
         self.dones[self.pos] = np.array(transition.done).copy()
 
         self.pos += 1
@@ -175,17 +162,17 @@ class SequenceUniformBuffer(AbstractBuffer):
             self.pos = 0
 
     def split_burnin(
-        self, samples: TransitionRecurrentOut
-    ) -> Tuple[TransitionRecurrentOut]:
+        self, samples: RecurrentTransition
+    ) -> Tuple[RecurrentTransition]:
         burnin_samples, learning_samples = {}, {}
-        for name, value in samples._asdict().items():
-            if name == "lengths":
-                burnin_samples[name] = value
-                learning_samples[name] = value
+        for field in fields(samples):
+            if field.name not in ["length"]:
+                burnin_samples[field.name] = getattr(samples, field.name)[:, : self.burn_in]
+                learning_samples[field.name] = getattr(samples, field.name)[:, self.burn_in :]
             else:
-                burnin_samples[name] = value[:, : self.burn_in]
-                learning_samples[name] = value[:, self.burn_in :]
-        return TransitionRecurrentOut(**burnin_samples), TransitionRecurrentOut(
+                burnin_samples[field.name] = getattr(samples, field.name)
+                learning_samples[field.name] = getattr(samples, field.name)
+        return RecurrentTransition(**burnin_samples), RecurrentTransition(
             **learning_samples
         )
 
@@ -194,11 +181,9 @@ class SequenceUniformBuffer(AbstractBuffer):
 
     def sample_transitions(
         self, indices: List[List[int]], to_tensor: bool = False
-    ) -> TransitionRecurrentOut:
+    ) -> RecurrentTransition:
         batch_size = len(indices)
 
-        last_actions = np.zeros(shape=(batch_size, self.sequence_size, 1))
-        last_rewards = np.zeros(shape=(batch_size, self.sequence_size, 1))
         observations = np.zeros(
             shape=(batch_size, self.sequence_size, *self.observation_shape)
         )
@@ -223,8 +208,6 @@ class SequenceUniformBuffer(AbstractBuffer):
         next_c_recurrents = np.zeros(
             shape=(batch_size, self.sequence_size, self.recurrent_dim)
         )
-        #next_last_actions = np.zeros(shape=(batch_size, self.sequence_size, 1))
-        # next_last_rewards = np.zeros(shape=(batch_size, self.sequence_size, 1))
 
         lengths = np.ones(shape=(batch_size,)) * self.sequence_size
         masks = np.zeros((batch_size, self.sequence_size))
@@ -234,12 +217,6 @@ class SequenceUniformBuffer(AbstractBuffer):
             observations[i, : len(sequence_idxs)] = self.observations[sequence_idxs]
             h_recurrents[i, : len(sequence_idxs)] = self.h_recurrents[sequence_idxs]
             c_recurrents[i, : len(sequence_idxs)] = self.c_recurrents[sequence_idxs]
-            # last_actions[i, : len(sequence_idxs)] = self.actions[
-            #     (np.array(sequence_idxs) - 1) % len(self)
-            # ]
-            # last_rewards[i, : len(sequence_idxs)] = self.rewards[
-            #     (np.array(sequence_idxs) - 1) % len(self)
-            # ].reshape(-1, 1)
 
             actions[i, : len(sequence_idxs)] = self.actions[sequence_idxs]
 
@@ -254,12 +231,6 @@ class SequenceUniformBuffer(AbstractBuffer):
             masks[i, : len(sequence_idxs)] = np.ones_like((sequence_idxs,))
             next_h_recurrents[i, : len(sequence_idxs)] = self.next_h_recurrents[sequence_idxs]
             next_c_recurrents[i, : len(sequence_idxs)] = self.next_c_recurrents[sequence_idxs]
-            # next_last_actions[i, : len(sequence_idxs)] = self.next_last_actions[
-            #     sequence_idxs
-            # ]
-            # next_last_rewards[i, : len(sequence_idxs)] = self.next_last_rewards[
-            #     sequence_idxs
-            # ].reshape(-1, 1)
 
             lengths[i] = len(sequence_idxs)
 
@@ -267,8 +238,6 @@ class SequenceUniformBuffer(AbstractBuffer):
             observations = torch.from_numpy(observations).float().to(self.device)
             h_recurrents = torch.from_numpy(h_recurrents).float().to(self.device)
             c_recurrents = torch.from_numpy(c_recurrents).float().to(self.device)
-            # last_actions = torch.from_numpy(last_actions).to(torch.int8).to(self.device)
-            # last_rewards = torch.from_numpy(last_rewards).float().to(self.device)
 
             actions = torch.from_numpy(actions).to(torch.int8).to(self.device)
 
@@ -283,36 +252,26 @@ class SequenceUniformBuffer(AbstractBuffer):
             next_c_recurrents = (
                 torch.from_numpy(next_c_recurrents).float().to(self.device)
             )
-            # next_last_actions = (
-            #     torch.from_numpy(next_last_actions).to(torch.int8).to(self.device)
-            # )
-            # next_last_rewards = (
-            #     torch.from_numpy(next_last_rewards).float().to(self.device)
-            # )
             dones = torch.from_numpy(dones).to(torch.int8).to(self.device)
             masks = torch.from_numpy(masks).to(torch.bool)
 
-        return TransitionRecurrentOut(
+        return RecurrentTransition(
             observation=observations,
             h_recurrent=h_recurrents,
             c_recurrent=c_recurrents,
-            #last_action=last_actions,
-            #last_reward=last_rewards,
             action=actions,
             reward=rewards,
             next_observation=next_observations,
             next_h_recurrent=next_h_recurrents,
             next_c_recurrent=next_c_recurrents,
-            #next_last_action=next_last_actions,
-            #next_last_reward=next_last_rewards,
             done=dones,
             mask=masks,
-            lengths=lengths
+            length=lengths
         )
 
     def sample(
         self, batch_size: int, to_tensor: bool = False, **kwargs
-    ) -> TransitionRecurrentOut:
+    ) -> RecurrentTransition:
         indices = self.sample_idxs(batch_size=batch_size)
         #print("indices : ", indices)
         return self.sample_transitions(indices=indices, to_tensor=to_tensor)
@@ -328,7 +287,7 @@ class SequenceUniformBuffer(AbstractBuffer):
             return self.pos
 
 
-class NStepSequenceUniformBuffer(SequenceUniformBuffer):
+class RecurrentNStepUniformBuffer(RecurrentUniformBuffer):
     def __init__(
         self,
         buffer_size: int,
@@ -359,7 +318,7 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
 
         self.n_step_buffer = deque(maxlen=self.n_step)
 
-    def add(self, transition: TransitionRecurrentIn):
+    def add(self, transition: RecurrentTransition):
         nstep_transition = self.get_nstep_transition(transition=transition)
         if nstep_transition:
             super().add(transition=nstep_transition)
@@ -370,14 +329,12 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
             next_observation,
             next_h_recurrent,
             next_c_recurrent,
-            #next_last_action,
             done,
         ) = (
             self.n_step_buffer[-1].reward,
             self.n_step_buffer[-1].next_observation,
             self.n_step_buffer[-1].next_h_recurrent,
             self.n_step_buffer[-1].next_c_recurrent,
-            #self.n_step_buffer[-1].next_last_action,
             self.n_step_buffer[-1].done,
         )
 
@@ -387,7 +344,6 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
                 transition.next_observation,
                 transition.next_h_recurrent,
                 transition.next_c_recurrent,
-                #transition.next_last_action,
                 transition.done,
             )
 
@@ -396,7 +352,6 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
                 next_observation = n_o
                 next_h_recurrent = n_h
                 next_c_recurrent = n_c
-                #next_last_action = n_a
                 done = d
 
         return (
@@ -404,11 +359,10 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
             next_observation,
             next_h_recurrent,
             next_c_recurrent,
-            #next_last_action,
             done,
         )
 
-    def get_nstep_transition(self, transition: TransitionRecurrentIn):
+    def get_nstep_transition(self, transition: RecurrentTransition):
         self.n_step_buffer.append(transition)
 
         # single step transition is not ready
@@ -421,7 +375,6 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
             next_observation,
             next_h_recurrent,
             next_c_recurrent,
-            #next_last_action,
             done,
         ) = self._get_n_step_info()
         observation, action, h_recurrent, c_recurrent = (
@@ -431,7 +384,7 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
             self.n_step_buffer[0].c_recurrent 
         )
 
-        return TransitionRecurrentIn(
+        return RecurrentTransition(
             h_recurrent=h_recurrent,
             c_recurrent=c_recurrent,
             observation=observation,
@@ -440,13 +393,12 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
             next_observation=next_observation,
             next_h_recurrent=next_h_recurrent,
             next_c_recurrent=next_c_recurrent,
-            #next_last_action=next_last_action,
             done=done,
         )
 
     def sample_transitions(
         self, indices: List[List[int]], to_tensor: bool = False
-    ) -> TransitionRecurrentOut:
+    ) -> NStepRecurrentTransition:
         transition = super().sample_transitions(indices=indices, to_tensor=to_tensor)
         
         batch_size = len(indices)
@@ -457,7 +409,7 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
             shape=(batch_size, self.sequence_size, *self.observation_shape)
         )
         for i, sequence_idxs in enumerate(indices):
-            next_observations = self.observations[(np.array(sequence_idxs)+1) % self.buffer_size]
+            next_observations[i, : len(sequence_idxs)] = self.observations[(np.array(sequence_idxs)+1) % self.buffer_size]
             next_nstep_observations[i, : len(sequence_idxs)] = self.next_observations[
                 sequence_idxs
             ]
@@ -470,7 +422,7 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
                 torch.from_numpy(next_nstep_observations).float().to(self.device)
             )
 
-        return TransitionNStepRecurrentOut(
+        return NStepRecurrentTransition(
             observation=transition.observation,
             h_recurrent=transition.h_recurrent,
             c_recurrent=transition.c_recurrent,
@@ -482,11 +434,11 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
             next_c_recurrent=transition.next_c_recurrent,
             done=transition.done,
             mask=transition.mask,
-            lengths=transition.lengths,
+            length=transition.length,
         )
     
 
-class NStepSequencePERBuffer(NStepSequenceUniformBuffer):
+class RecurrentNStepPERBuffer(RecurrentNStepUniformBuffer):
     def __init__(
         self,
         buffer_size: int,
@@ -533,21 +485,21 @@ class NStepSequencePERBuffer(NStepSequenceUniformBuffer):
         self.min_tree = MinSegmentTree(tree_capacity)
 
     def split_burnin(
-        self, samples: TransitionRecurrentPEROut
-    ) -> Tuple[TransitionRecurrentPEROut]:
+        self, samples: NStepPERRecurrentTransition
+    ) -> Tuple[NStepPERRecurrentTransition]:
         burnin_samples, learning_samples = {}, {}
-        for name, value in samples._asdict().items():
-            if name not in ["weights", "indices", "lengths"]:
-                burnin_samples[name] = value[:, : self.burn_in]
-                learning_samples[name] = value[:, self.burn_in :]
+        for field in fields(samples):
+            if field.name not in ["weights", "indices", "length"]:
+                burnin_samples[field.name] = getattr(samples, field.name)[:, : self.burn_in]
+                learning_samples[field.name] = getattr(samples, field.name)[:, self.burn_in :]
             else:
-                burnin_samples[name] = value
-                learning_samples[name] = value
-        return TransitionRecurrentPEROut(**burnin_samples), TransitionRecurrentPEROut(
+                burnin_samples[field.name] = getattr(samples, field.name)
+                learning_samples[field.name] = getattr(samples, field.name)
+        return NStepPERRecurrentTransition(**burnin_samples), NStepPERRecurrentTransition(
             **learning_samples
         )
 
-    def add(self, transition: TransitionRecurrentIn):
+    def add(self, transition: NStepPERRecurrentTransition):
         super().add(transition=transition)
         self.sum_tree[self.tree_ptr] = self.max_priority**self.alpha
         self.min_tree[self.tree_ptr] = self.max_priority**self.alpha
@@ -556,17 +508,15 @@ class NStepSequencePERBuffer(NStepSequenceUniformBuffer):
     def sample_idxs(self, batch_size: int) -> Union[np.ndarray, List[int]]:
         return self._sample_proportional(batch_size=batch_size)
     
-    def sample_transitions(self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False) -> TransitionRecurrentPEROut:
-        #logger.info(f"Indices : {indices}")
+    def sample_transitions(self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False) -> NStepPERRecurrentTransition:
         sequences_idxs = [self.sequence_tracker[idx] for idx in indices]
-        #logger.info(f"Sequences idxs : {sequences_idxs}")
         transition = super().sample_transitions(sequences_idxs, to_tensor)
 
         weights = np.array([self._calculate_weight(i, self.beta) for i in indices])
         if to_tensor:
             weights = torch.from_numpy(weights).float().to(self.device)
 
-        return TransitionRecurrentPEROut(
+        return NStepPERRecurrentTransition(
             observation=transition.observation,
             h_recurrent=transition.h_recurrent,
             c_recurrent=transition.c_recurrent,
@@ -578,7 +528,7 @@ class NStepSequencePERBuffer(NStepSequenceUniformBuffer):
             next_c_recurrent=transition.next_c_recurrent,
             done=transition.done,
             mask=transition.mask,
-            lengths=transition.lengths,
+            length=transition.length,
             indices=indices,
             weights=weights,
         )

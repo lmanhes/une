@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import wandb
 
-from une.agents.abstract import AbstractAgent
+from une.agent import Agent
 
 
 class ImgObsWrapperPermute(ImgObsWrapper):
@@ -74,7 +74,7 @@ def seed_agent(seed: int = 42):
 
 
 def eval(
-    agent: AbstractAgent,
+    agent: Agent,
     env: gym.Env,
     global_steps: int,
     seed: int,
@@ -112,7 +112,7 @@ def eval(
 
 
 def train(
-    agent: AbstractAgent,
+    agent: Agent,
     env: gym.Env,
     env_name: str,
     global_steps: int = 0,
