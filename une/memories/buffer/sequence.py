@@ -11,11 +11,14 @@ from une.memories.utils.segment_tree import SumSegmentTree, MinSegmentTree
 from une.memories.utils.transition import (
     TransitionRecurrentIn,
     TransitionRecurrentOut,
-    TransitionRecurrentPEROut
+    TransitionRecurrentPEROut,
+    TransitionNStepRecurrentOut,
+    TransitionEpisodicRecurrentIn
 )
 
 
 class SequenceTracker(object):
+
     def __init__(self, sequence_size: int, over_lapping: int, buffer_size: int) -> None:
         self.sequence_size = sequence_size
         self.over_lapping = over_lapping
@@ -65,6 +68,7 @@ class SequenceTracker(object):
 
 
 class SequenceUniformBuffer(AbstractBuffer):
+
     def __init__(
         self,
         buffer_size: int,
@@ -440,6 +444,47 @@ class NStepSequenceUniformBuffer(SequenceUniformBuffer):
             done=done,
         )
 
+    def sample_transitions(
+        self, indices: List[List[int]], to_tensor: bool = False
+    ) -> TransitionRecurrentOut:
+        transition = super().sample_transitions(indices=indices, to_tensor=to_tensor)
+        
+        batch_size = len(indices)
+        next_observations = np.zeros(
+            shape=(batch_size, self.sequence_size, *self.observation_shape)
+        )
+        next_nstep_observations = np.zeros(
+            shape=(batch_size, self.sequence_size, *self.observation_shape)
+        )
+        for i, sequence_idxs in enumerate(indices):
+            next_observations = self.observations[(np.array(sequence_idxs)+1) % self.buffer_size]
+            next_nstep_observations[i, : len(sequence_idxs)] = self.next_observations[
+                sequence_idxs
+            ]
+
+        if to_tensor:
+            next_observations = (
+                torch.from_numpy(next_observations).float().to(self.device)
+            )
+            next_nstep_observations = (
+                torch.from_numpy(next_nstep_observations).float().to(self.device)
+            )
+
+        return TransitionNStepRecurrentOut(
+            observation=transition.observation,
+            h_recurrent=transition.h_recurrent,
+            c_recurrent=transition.c_recurrent,
+            action=transition.action,
+            reward=transition.reward,
+            next_observation=next_observations,
+            next_nstep_observation=next_nstep_observations,
+            next_h_recurrent=transition.next_h_recurrent,
+            next_c_recurrent=transition.next_c_recurrent,
+            done=transition.done,
+            mask=transition.mask,
+            lengths=transition.lengths,
+        )
+    
 
 class NStepSequencePERBuffer(NStepSequenceUniformBuffer):
     def __init__(
@@ -528,6 +573,7 @@ class NStepSequencePERBuffer(NStepSequenceUniformBuffer):
             action=transition.action,
             reward=transition.reward,
             next_observation=transition.next_observation,
+            next_nstep_observation=transition.next_nstep_observation,
             next_h_recurrent=transition.next_h_recurrent,
             next_c_recurrent=transition.next_c_recurrent,
             done=transition.done,

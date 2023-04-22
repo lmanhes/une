@@ -18,6 +18,7 @@ class LifeLongEpisodicModule(nn.Module):
         episodic_memory_size: int = 300,
         k: int = 10,
         forward_loss_weight: float = 0.2,
+        sequence: bool = False
     ):
         super(LifeLongEpisodicModule, self).__init__()
         self.encoder = encoder
@@ -32,7 +33,8 @@ class LifeLongEpisodicModule(nn.Module):
             features_dim=features_dim,
             actions_dim=actions_dim,
             encoder=self.encoder,
-            forward_loss_weight=self.forward_loss_weight
+            forward_loss_weight=self.forward_loss_weight,
+            sequence=sequence
         )
 
         self.lifelong_reward_running_stats = RunningStats()

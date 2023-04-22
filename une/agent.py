@@ -10,6 +10,8 @@ from une.algos.icm_dqn import ICMDQN
 from une.algos.ngu_dqn import NGUDQN
 from une.algos.noisy_dqn import NoisyDQN
 from une.algos.r2d1 import R2D1
+from une.algos.icm_r2d1 import ICMR2D1
+from une.algos.ngu_r2d1 import NGUR2D1
 from une.representations.abstract import AbstractRepresentation
 from une.memories.buffer.uniform import UniformBuffer, NStepUniformBuffer
 from une.memories.buffer.ere import EREBuffer, NStepEREBuffer
@@ -18,6 +20,7 @@ from une.memories.buffer.episodic import (
     EpisodicPERBuffer,
     EpisodicNStepUniformBuffer,
     EpisodicNStepPERBuffer,
+    EpisodicNStepSequencePERBuffer
 )
 from une.memories.buffer.sequence import (
     SequenceUniformBuffer,
@@ -74,10 +77,18 @@ class Agent(object):
     ):
         super().__init__()
         if recurrent:
-            algo_cls = R2D1
+            if curiosity == "icm":
+                algo_cls = ICMR2D1
+            elif curiosity == "ngu":
+                algo_cls = NGUR2D1
+            else:
+                algo_cls = R2D1
             if n_step > 1:
                 if memory_buffer_type == "per":
-                    memory_buffer_cls = NStepSequencePERBuffer
+                    if curiosity == "ngu":
+                        memory_buffer_cls = EpisodicNStepSequencePERBuffer
+                    else:
+                        memory_buffer_cls = NStepSequencePERBuffer
                 else:
                     memory_buffer_cls = NStepSequenceUniformBuffer
             else:

@@ -80,7 +80,7 @@ class EpisodicCuriosityModule(object):
             # neighbor_distances from knn_query is the squared Euclidean distances.
             nn_distances_sq = knn_query_result.neighbor_distances
 
-            self.euclidean_dist_running_stats += nn_distances_sq
+            self.euclidean_dist_running_stats += nn_distances_sq.cpu().numpy()
 
             # Normalize distances with running mean dₘ².
             distance_rate = nn_distances_sq / self.euclidean_dist_running_stats.mean

@@ -58,12 +58,16 @@ class RecurrentQNetwork(nn.Module):
         self.recurrent = nn.LSTM(features_dim, self.recurrent_dim, batch_first=True)
 
         self.q_net = NoisyLinear(recurrent_dim, action_dim)
+        #self.fc_adv = NoisyLinear(self.recurrent_dim, self.action_dim)
+        #self.fc_val = NoisyLinear(self.recurrent_dim, 1)
 
     def reset_noise(self):
         self.q_net.reset_noise()
+        #self.fc_adv.reset_noise()
+        #self.fc_val.reset_noise()
 
     def init_recurrent(self, batch_size: int):
-        return tuple(torch.zeros(1, batch_size, self.recurrent_dim) for _ in range(2))
+        return tuple(torch.zeros(1, batch_size, self.recurrent_dim).to(self.device) for _ in range(2))
 
     def forward(
         self,
@@ -96,8 +100,19 @@ class RecurrentQNetwork(nn.Module):
         x = x.view(-1, sequence_size, self.features_dim)
         x, (h_recurrent, c_recurrent) = self.recurrent(x, (h_recurrent, c_recurrent))
 
-        q_values = self.q_net(x.contiguous().view(batch_size * sequence_size, -1))
+        x = x.contiguous().view(batch_size * sequence_size, -1)
+
+        # adv = self.fc_adv(x)
+        # adv = adv.view(batch_size, sequence_size, self.action_dim)
+
+        # val = self.fc_val(x)
+        # val = val.view(batch_size, sequence_size, 1)
+
+        # q_values = val + (adv - adv.mean(dim=2, keepdim=True))
+
+        q_values = self.q_net(x)
         q_values = q_values.view(batch_size, sequence_size, -1)
+
         return q_values, (h_recurrent, c_recurrent)
 
 
@@ -318,14 +333,14 @@ class R2D1(NoisyDQN):
 
         transition = TransitionRecurrentIn(
             observation=self._last_observation,
-            h_recurrent=self._last_h_recurrent.numpy(),
-            c_recurrent=self._last_c_recurrent.numpy(),
+            h_recurrent=self._last_h_recurrent.cpu().numpy(),
+            c_recurrent=self._last_c_recurrent.cpu().numpy(),
             action=self._last_action,
             reward=reward,
             done=done,
             next_observation=observation,
-            next_h_recurrent=self._h_recurrent.numpy(),
-            next_c_recurrent=self._c_recurrent.numpy(),
+            next_h_recurrent=self._h_recurrent.cpu().numpy(),
+            next_c_recurrent=self._c_recurrent.cpu().numpy(),
             # next_last_action=self._last_action,
         )
         self.memory_buffer.add(transition)

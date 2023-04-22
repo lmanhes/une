@@ -1,6 +1,6 @@
 ale-py==0.8.0
 box2d-py==2.3.5
-gymnasium[box2d, atari, accept-rom-license]==0.27.0
+gymnasium[box2d, atari, accept-rom-license]
 loguru==0.6.0
 opencv-python==4.6.0.66
 psutil==5.9.3

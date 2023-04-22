@@ -6,7 +6,8 @@ import torch
 from une.memories.buffer.nstep import NStep
 from une.memories.buffer.per import PERBuffer, NStepPERBuffer
 from une.memories.buffer.uniform import UniformBuffer
-from une.memories.utils.transition import TransitionEpisodic, TransitionNStepEpisodic, TransitionPEREpisodic, TransitionNStepPEREpisodic
+from une.memories.buffer.sequence import NStepSequencePERBuffer
+from une.memories.utils.transition import TransitionEpisodic, TransitionNStepEpisodic, TransitionPEREpisodic, TransitionNStepPEREpisodic, TransitionEpisodicRecurrentPEROut
 
 
 class EpisodicBuffer(UniformBuffer):
@@ -199,4 +200,69 @@ class EpisodicNStepPERBuffer(NStepPERBuffer):
             done=transition.done,
             indices=transition.indices,
             weights=transition.weights,
+        )
+
+
+class EpisodicNStepSequencePERBuffer(NStepSequencePERBuffer):
+    def __init__(
+        self,
+        buffer_size: int,
+        observation_shape: Tuple[int],
+        observation_dtype: np.dtype,
+        device: str = "cpu",
+        alpha: float = 0.7,
+        beta: float = 0.4,
+        prior_eps: float = 1e-6,
+        n_step: int = 3,
+        gamma: float = 0.99,
+        sequence_length: int = 80,
+        burn_in: int = 40,
+        over_lapping: int = 20,
+        recurrent_dim: int = 512,
+        **kwargs
+    ) -> None:
+        super().__init__(
+            buffer_size=buffer_size,
+            observation_shape=observation_shape,
+            observation_dtype=observation_dtype,
+            device=device,
+            n_step=n_step,
+            gamma=gamma,
+            alpha=alpha,
+            beta=beta,
+            prior_eps=prior_eps,
+            sequence_length=sequence_length,
+            burn_in=burn_in,
+            over_lapping=over_lapping,
+            recurrent_dim=recurrent_dim,
+        )
+        self.episodic_rewards = np.zeros((self.buffer_size,))
+
+    def add(self, transition: TransitionEpisodic):
+        self.episodic_rewards[self.pos] = np.array(transition.episodic_reward).copy()
+        super().add(transition=transition)
+
+    def sample_transitions(self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False) -> TransitionEpisodicRecurrentPEROut:
+        transition = super().sample_transitions(indices, to_tensor)
+
+        episodic_rewards = self.episodic_rewards[indices].reshape(-1, 1)
+        if to_tensor:
+            episodic_rewards = torch.from_numpy(episodic_rewards).float().to(self.device)
+
+        return TransitionEpisodicRecurrentPEROut(
+            observation=transition.observation,
+            h_recurrent=transition.h_recurrent,
+            c_recurrent=transition.c_recurrent,
+            action=transition.action,
+            reward=transition.reward,
+            next_observation=transition.next_observation,
+            next_nstep_observation=transition.next_nstep_observation,
+            next_h_recurrent=transition.next_h_recurrent,
+            next_c_recurrent=transition.next_c_recurrent,
+            done=transition.done,
+            mask=transition.mask,
+            lengths=transition.lengths,
+            indices=transition.indices,
+            weights=transition.weights,
+            episodic_reward=episodic_rewards,
         )

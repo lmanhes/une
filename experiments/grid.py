@@ -1,15 +1,22 @@
 import sys, os
+
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import wandb
 
 from une.agent import Agent
+from une.representations.vision.minigrid_cnn import MinigridCnn
 from une.representations.tabular.mlp import GymMlp
-from experiments.utils import train, make_gym_env, seed_agent
+from experiments.utils import make_gym_env, seed_agent, train
 
 seed = 42
-env_name = "CartPole-v1"
-env = make_gym_env(env_name=env_name, atari=False, video=True, seed=seed)
+resume = False
+run_id = ""
+
+env_name = "MiniGrid-FourRooms-v0"
+env = make_gym_env(env_name=env_name, minigrid=True, flat=True, video=True, seed=seed)
+print(env.observation_space, env.observation_space.dtype)
 
 config = {
     "name": f"DQN_{env_name}",
@@ -27,10 +34,10 @@ config = {
     "soft_update": True,
     "buffer_size": int(2e5),
     "n_step": 5,
-    "use_gpu": False,
+    "use_gpu": True,
     "memory_buffer_type": 'per',
     "exploration": 'noisy',
-    "curiosity": None,
+    "curiosity": "ngu",
     "intrinsic_reward_weight": 0.01,
     "icm_features_dim": 64,
     "icm_forward_loss_weight": 0.5,
@@ -48,26 +55,33 @@ config = {
 }
 seed_agent(seed=seed)
 
-wandb.init(project=env_name, config=config)
-agent = Agent(
-    representation_module_cls=GymMlp,
-    observation_shape=env.observation_space.shape,
-    observation_dtype=env.observation_space.dtype,
-    n_actions=env.action_space.n,
-    exploration_initial_eps=1,
-    exploration_final_eps=0.025,
-    **config
-)
+if resume:
+    run = wandb.init(id=run_id, project=env_name, resume=True)
+    agent = Agent.load(path=f"{config['name']}.pt")
+else:
+    run = wandb.init(project=env_name, config=config)
+    agent = Agent(
+        representation_module_cls=GymMlp,
+        observation_shape=env.observation_space.shape,
+        observation_dtype=env.observation_space.dtype,
+        n_actions=env.action_space.n,
+        exploration_initial_eps=1,
+        exploration_final_eps=0.025,
+        **config,
+    )
 
-wandb.watch(agent.algo.networks, log="all")
+wandb.watch(agent.algo.q_net, agent.algo.criterion, log="all")
 
 train(
     agent=agent,
     env=env,
     env_name=env_name,
-    max_global_steps=5e4,
+    global_steps=agent.steps if resume else 0,
+    n_episodes=agent.episodes if resume else 0,
+    max_global_steps=3e5,
     max_episode_steps=3000,
     eval_every_n_episodes=1,
+    logs=True,
 )
 
 env.close()

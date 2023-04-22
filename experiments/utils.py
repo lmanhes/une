@@ -5,6 +5,7 @@ import gymnasium as gym
 from gymnasium.wrappers.record_video import capped_cubic_video_schedule
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
 from gymnasium.wrappers.frame_stack import FrameStack
+from minigrid.wrappers import RGBImgObsWrapper, ImgObsWrapper, FlatObsWrapper
 from loguru import logger
 import numpy as np
 import torch
@@ -13,10 +14,30 @@ import wandb
 from une.agents.abstract import AbstractAgent
 
 
+class ImgObsWrapperPermute(ImgObsWrapper):
+    """
+    Use the image as the only observation output, no language/mission.
+    """
+
+    def __init__(self, env):
+        super().__init__(env)
+        self._observation_space = gym.spaces.Box(
+            low=np.transpose(self.observation_space.low, (2, 0, 1)),
+            high=np.transpose(self.observation_space.high, (2, 0, 1)),
+            shape=self.observation_space.shape[::-1],
+            dtype=self.observation_space.dtype,
+        )
+
+    def observation(self, obs):
+        return np.transpose(obs["image"], (2, 0, 1))
+
+
 def make_gym_env(
     env_name: str,
     seed: int = 42,
     atari: bool = False,
+    minigrid: bool = False,
+    flat: bool  = False,
     video: bool = False,
     n_frame_stack: int = 1,
 ):
@@ -27,6 +48,12 @@ def make_gym_env(
 
     if atari:
         env = AtariPreprocessing(env)
+    elif minigrid:
+        if flat:
+            env = FlatObsWrapper(env)
+        else:
+            env = RGBImgObsWrapper(env)
+            env = ImgObsWrapperPermute(env)
 
     if n_frame_stack > 1:
         env = FrameStack(env, num_stack=n_frame_stack)
@@ -60,7 +87,7 @@ def eval(
     episode_reward = 0
     start = time.time()
     agent.reset()
-    
+
     while not done:
         episode_steps += 1
         action = agent.act(observation=observation, evaluate=True)
@@ -113,7 +140,7 @@ def train(
             done = (terminated or truncated) or (episode_steps > max_episode_steps)
 
             episode_reward += reward
-            
+
             agent.memorize(observation=next_observation, reward=reward, done=done)
 
             if done:

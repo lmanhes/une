@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "une"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.11"
+minigrid = "^2.2.1"
+torch = "^2.0.0"
+loguru = "^0.7.0"
+opencv-python = "^4.7.0.72"
+wandb = "^0.14.2"
+moviepy = "^1.0.3"
+ffmpeg = "^1.4"
+box2d-py = "^2.3.8"
+ale-py = "^0.8.1"
+shimmy = {extras = ["atari"], version = "^0.2.1"}
+autorom = {extras = ["accept-rom-license"], version = "^0.6.1"}
+
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.3.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
