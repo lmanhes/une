@@ -1,14 +1,12 @@
 from typing import Tuple, Union, Type
 
-from loguru import logger
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from une.memories.buffer.abstract import AbstractBuffer
+from une.memories.buffers.abstract import AbstractBuffer
 from une.representations.abstract import AbstractRepresentation
-from une.algos.dqn import DQN
+from une.algos.dqn.dqn import DQN
 from une.exploration.noisy import NoisyLinear
 
 
@@ -34,10 +32,10 @@ class NoisyQNetwork(nn.Module):
         observations = observations.to(self.device)
         x = self.representation_module(observations)
         return x, self.q_net(x)
-    
+
     def reset_noise(self):
         self.q_net.reset_noise()
-    
+
 
 class NoisyDQN(DQN):
     def __init__(
@@ -62,7 +60,7 @@ class NoisyDQN(DQN):
         use_gpu: bool = False,
         per_alpha: float = 0.7,
         per_beta: float = 0.4,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
             observation_shape=observation_shape,
@@ -88,8 +86,8 @@ class NoisyDQN(DQN):
         )
 
     def choose_action(self, observation: torch.Tensor, steps: int) -> int:
-         return self.choose_greedy_action(observation=observation)
-    
+        return self.choose_greedy_action(observation=observation)
+
     def learn(self, steps: int) -> float:
         loss = super().learn(steps)
         self.q_net.reset_noise()

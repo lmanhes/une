@@ -2,9 +2,9 @@ from typing import Tuple, Union, List
 
 import numpy as np
 
-from une.memories.buffer.nstep import NStep
-from une.memories.buffer.uniform import UniformBuffer
-from une.memories.utils.transition import Transition
+from une.memories.buffers.nstep import NStep
+from une.memories.buffers.uniform import UniformBuffer
+from une.memories.transitions import Transition
 
 
 class EREBuffer(UniformBuffer):

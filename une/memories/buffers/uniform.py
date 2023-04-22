@@ -5,9 +5,8 @@ from loguru import logger
 import numpy as np
 import torch
 
-from une.memories.buffer.abstract import AbstractBuffer
-from une.memories.buffer.nstep import NStep
-from une.memories.utils.transition import Transition, TransitionNStep
+from une.memories.buffers.abstract import AbstractBuffer
+from une.memories.transitions import Transition
 
 
 class UniformBuffer(AbstractBuffer):
@@ -120,56 +119,3 @@ class UniformBuffer(AbstractBuffer):
         else:
             return self.pos
 
-
-class NStepUniformBuffer(UniformBuffer, NStep):
-    """
-    Paper: http://incompleteideas.net/papers/sutton-88-with-erratum.pdf
-    """
-
-    def __init__(
-        self,
-        buffer_size: int,
-        observation_shape: Tuple[int],
-        observation_dtype: np.dtype,
-        device: str = "cpu",
-        n_step: int = 3,
-        gamma: float = 0.99,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            buffer_size=buffer_size,
-            observation_shape=observation_shape,
-            observation_dtype=observation_dtype,
-            device=device,
-            n_step=n_step,
-            gamma=gamma,
-        )
-
-    def add(self, transition: Transition):
-        nstep_transition = super().get_nstep_transition(transition=transition)
-        if nstep_transition:
-            super().add(transition=nstep_transition)
-
-    def sample_transitions(
-        self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False
-    ) -> TransitionNStep:
-        transition = super().sample_transitions(indices=indices, to_tensor=to_tensor)
-
-        next_observations = self.observations[(np.array(indices)+1) % self.buffer_size]
-        next_nstep_observations = self.next_observations[indices]
-        if to_tensor:
-            next_observations = (
-                torch.from_numpy(next_observations).float().to(self.device)
-            )
-            next_nstep_observations = (
-                torch.from_numpy(next_nstep_observations).float().to(self.device)
-            )
-
-        return TransitionNStep(
-            observation=transition.observation,
-            action=transition.action,
-            reward=transition.reward,
-            next_observation=next_observations,
-            next_nstep_observation=next_nstep_observations,
-            done=transition.done,
-        )

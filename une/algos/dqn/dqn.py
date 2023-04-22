@@ -8,9 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import wandb
 
-from une.memories.buffer.abstract import AbstractBuffer
-from une.memories.buffer.uniform import Transition, TransitionNStep
-from une.memories.buffer.per import TransitionPER, TransitionNStepPER
+from une.memories.buffers.abstract import AbstractBuffer
+from une.memories.transitions import Transition
 from une.representations.abstract import AbstractRepresentation
 
 
@@ -39,6 +38,7 @@ class QNetwork(nn.Module):
 
 
 class DQN:
+    
     def __init__(
         self,
         observation_shape: Tuple[int],
@@ -288,9 +288,7 @@ class DQN:
 
     def compute_loss(
         self,
-        samples_from_memory: Union[
-            Transition, TransitionNStep, TransitionPER, TransitionNStepPER
-        ],
+        samples_from_memory: Transition,
         steps: int,
         elementwise: bool = False,
     ) -> torch.Tensor:

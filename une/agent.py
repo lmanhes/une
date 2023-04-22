@@ -5,27 +5,19 @@ from loguru import logger
 import numpy as np
 import torch
 
-from une.algos.dqn import DQN
-from une.algos.icm_dqn import ICMDQN
-from une.algos.ngu_dqn import NGUDQN
-from une.algos.noisy_dqn import NoisyDQN
-from une.algos.r2d1 import R2D1
-from une.algos.icm_r2d1 import ICMR2D1
-from une.algos.ngu_r2d1 import NGUR2D1
+from une.algos.dqn.dqn import DQN
+from une.algos.dqn.icm_dqn import ICMDQN
+from une.algos.dqn.noisy_dqn import NoisyDQN
+from une.algos.r2d1.r2d1 import R2D1
 from une.representations.abstract import AbstractRepresentation
-from une.memories.buffer.uniform import UniformBuffer, NStepUniformBuffer
-from une.memories.buffer.ere import EREBuffer, NStepEREBuffer
-from une.memories.buffer.per import PERBuffer, NStepPERBuffer
-from une.memories.buffer.episodic import (
-    EpisodicPERBuffer,
-    EpisodicNStepUniformBuffer,
-    EpisodicNStepPERBuffer,
-    EpisodicNStepSequencePERBuffer
-)
-from une.memories.buffer.sequence import (
-    SequenceUniformBuffer,
-    NStepSequenceUniformBuffer,
-    NStepSequencePERBuffer
+from une.memories.buffers.uniform import UniformBuffer
+from une.memories.buffers.nstep import NStepUniformBuffer
+from une.memories.buffers.ere import EREBuffer, NStepEREBuffer
+from une.memories.buffers.per import PERBuffer, NStepPERBuffer
+from une.memories.buffers.recurrent import (
+    RecurrentUniformBuffer,
+    RecurrentNStepUniformBuffer,
+    RecurrentNStepPERBuffer,
 )
 
 
@@ -62,7 +54,6 @@ class Agent(object):
         episodes: int = 0,
         recurrent: bool = False,
         exploration: str = "epsilon-greedy",
-        curiosity: str = None,
         intrinsic_reward_weight: float = 0.1,
         icm_features_dim: int = 256,
         icm_forward_loss_weight: float = 0.2,
@@ -77,32 +68,21 @@ class Agent(object):
     ):
         super().__init__()
         if recurrent:
-            if curiosity == "icm":
-                algo_cls = ICMR2D1
-            elif curiosity == "ngu":
-                algo_cls = NGUR2D1
-            else:
-                algo_cls = R2D1
+            algo_cls = R2D1
             if n_step > 1:
                 if memory_buffer_type == "per":
-                    if curiosity == "ngu":
-                        memory_buffer_cls = EpisodicNStepSequencePERBuffer
-                    else:
-                        memory_buffer_cls = NStepSequencePERBuffer
+                    memory_buffer_cls = RecurrentNStepPERBuffer
                 else:
-                    memory_buffer_cls = NStepSequenceUniformBuffer
+                    memory_buffer_cls = RecurrentNStepUniformBuffer
             else:
-                memory_buffer_cls = SequenceUniformBuffer
+                memory_buffer_cls = RecurrentUniformBuffer
         else:
             if exploration == "noisy":
                 algo_cls = NoisyDQN
+            elif exploration == "icm":
+                algo_cls = ICMDQN
             else:
                 algo_cls = DQN
-
-            if curiosity == "icm":
-                algo_cls = ICMDQN
-            elif curiosity == "ngu":
-                algo_cls = NGUDQN
 
             if memory_buffer_type == "ere":
                 if n_step > 1:
@@ -111,21 +91,12 @@ class Agent(object):
                     memory_buffer_cls = EREBuffer
             elif memory_buffer_type == "per":
                 if n_step > 1:
-                    if curiosity == "ngu":
-                        memory_buffer_cls = EpisodicNStepPERBuffer
-                    else:
-                        memory_buffer_cls = NStepPERBuffer
+                    memory_buffer_cls = NStepPERBuffer
                 else:
-                    if curiosity == "ngu":
-                        memory_buffer_cls = EpisodicPERBuffer
-                    else:
-                        memory_buffer_cls = PERBuffer
+                    memory_buffer_cls = PERBuffer
             else:
                 if n_step > 1:
-                    if curiosity == "ngu":
-                        memory_buffer_cls = EpisodicNStepUniformBuffer
-                    else:
-                        memory_buffer_cls = NStepUniformBuffer
+                    memory_buffer_cls = NStepUniformBuffer
                 else:
                     memory_buffer_cls = UniformBuffer
 
@@ -164,7 +135,7 @@ class Agent(object):
             burn_in=burn_in,
             over_lapping=over_lapping,
             recurrent_dim=recurrent_dim,
-            recurrent_init_strategy=recurrent_init_strategy
+            recurrent_init_strategy=recurrent_init_strategy,
         )
 
         self.name = name
@@ -173,7 +144,6 @@ class Agent(object):
         self.save_freq = save_freq
         self.steps = steps
         self.episodes = episodes
-        self.curiosity = curiosity
         self.recurrent = recurrent
 
     def act(self, observation: np.ndarray, evaluate: bool = False) -> int:
@@ -183,7 +153,12 @@ class Agent(object):
         act_random = (self.steps < self.warmup) and not evaluate
         if act_random:
             print(f"Act random : {act_random} -- steps {self.steps}")
-        action = self.algo.act(observation=observation, steps=self.steps, random=act_random, evaluate=evaluate)
+        action = self.algo.act(
+            observation=observation,
+            steps=self.steps,
+            random=act_random,
+            evaluate=evaluate,
+        )
 
         if (
             not evaluate
@@ -197,7 +172,7 @@ class Agent(object):
         #    self.save(f"artifacts/{self.name}.pt")
 
         return action
-    
+
     def reset(self):
         self.algo.reset()
 
@@ -239,9 +214,5 @@ class Agent(object):
         for target_param in agent.algo.q_net_target.parameters():
             target_param.requires_grad = False
         agent.algo.optimizer.load_state_dict(load_object["optimizer_state_dict"])
-
-        print("Memory size : ", len(agent.algo.memory_buffer))
-        print("Global steps : ", agent.steps, agent.name)
-        print("Epsilon : ", agent.epsilon, agent.steps)
 
         return agent

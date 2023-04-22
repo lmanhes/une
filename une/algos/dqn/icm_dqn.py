@@ -1,15 +1,14 @@
-from typing import Tuple, Union, Type
+from typing import Tuple, Type
 
 import numpy as np
 import torch
 import wandb
 
-from une.memories.buffer.abstract import AbstractBuffer
-from une.memories.buffer.uniform import Transition, TransitionNStep
-from une.memories.buffer.per import TransitionPER, TransitionNStepPER
+from une.memories.buffers.abstract import AbstractBuffer
+from une.memories.transitions import Transition
 from une.representations.abstract import AbstractRepresentation
-from une.algos.noisy_dqn import NoisyDQN
-from une.curiosity.icm import IntrinsicCuriosityModule
+from une.algos.dqn.noisy_dqn import NoisyDQN
+from une.exploration.icm import IntrinsicCuriosityModule
 
 
 class ICMDQN(NoisyDQN):
@@ -76,7 +75,7 @@ class ICMDQN(NoisyDQN):
             input_dim=self.features_dim,
             features_dim=self.icm_features_dim,
             actions_dim=n_actions,
-            forward_loss_weight=self.icm_forward_loss_weight
+            forward_loss_weight=self.icm_forward_loss_weight,
         ).to(self.device)
 
     @property
@@ -88,13 +87,10 @@ class ICMDQN(NoisyDQN):
 
     def compute_loss(
         self,
-        samples_from_memory: Union[
-            Transition, TransitionNStep, TransitionPER, TransitionNStepPER
-        ],
+        samples_from_memory: Transition,
         steps: int,
         elementwise: bool = False,
     ) -> torch.Tensor:
-
         intrinsic_loss, intrinsic_reward = self.icm(
             observation=samples_from_memory.observation,
             next_observation=samples_from_memory.next_observation,
