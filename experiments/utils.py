@@ -37,7 +37,7 @@ def make_gym_env(
     seed: int = 42,
     atari: bool = False,
     minigrid: bool = False,
-    flat: bool  = False,
+    flat: bool = False,
     video: bool = False,
     n_frame_stack: int = 1,
 ):

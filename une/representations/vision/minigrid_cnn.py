@@ -18,7 +18,7 @@ class MinigridCnn(AbstractRepresentation):
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=2),
             nn.ReLU(),
-            nn.Flatten()
+            nn.Flatten(),
         )
 
         with torch.no_grad():

@@ -81,7 +81,7 @@ class NStepEREBuffer(EREBuffer, NStep):
             gradient_steps=gradient_steps,
             eta=eta,
             n_step=n_step,
-            gamma=gamma
+            gamma=gamma,
         )
 
     def add(self, transition: Transition):

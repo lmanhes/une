@@ -53,16 +53,19 @@ class RecurrentQNetwork(nn.Module):
         self.recurrent = nn.LSTM(features_dim, self.recurrent_dim, batch_first=True)
 
         self.q_net = NoisyLinear(recurrent_dim, action_dim)
-        #self.fc_adv = NoisyLinear(self.recurrent_dim, self.action_dim)
-        #self.fc_val = NoisyLinear(self.recurrent_dim, 1)
+        # self.fc_adv = NoisyLinear(self.recurrent_dim, self.action_dim)
+        # self.fc_val = NoisyLinear(self.recurrent_dim, 1)
 
     def reset_noise(self):
         self.q_net.reset_noise()
-        #self.fc_adv.reset_noise()
-        #self.fc_val.reset_noise()
+        # self.fc_adv.reset_noise()
+        # self.fc_val.reset_noise()
 
     def init_recurrent(self, batch_size: int):
-        return tuple(torch.zeros(1, batch_size, self.recurrent_dim).to(self.device) for _ in range(2))
+        return tuple(
+            torch.zeros(1, batch_size, self.recurrent_dim).to(self.device)
+            for _ in range(2)
+        )
 
     def forward(
         self,
@@ -506,7 +509,6 @@ class R2D1(NoisyDQN):
         steps: int,
         elementwise: bool = False,
     ) -> torch.Tensor:
-
         # print("lengths : ", samples_from_memory.lengths, samples_from_memory.lengths.shape)
         if self.recurrent_init_strategy == "burnin":
             burnin_samples, learning_samples = self.memory_buffer.split_burnin(

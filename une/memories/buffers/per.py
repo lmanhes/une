@@ -57,8 +57,10 @@ class PERBuffer(UniformBuffer):
 
     def sample_idxs(self, batch_size: int) -> Union[np.ndarray, List[int]]:
         return self._sample_proportional(batch_size=batch_size)
-    
-    def sample_transitions(self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False) -> PERTransition:
+
+    def sample_transitions(
+        self, indices: Union[np.ndarray, List[int]], to_tensor: bool = False
+    ) -> PERTransition:
         transition = super().sample_transitions(indices, to_tensor)
 
         weights = np.array([self._calculate_weight(i, self.beta) for i in indices])
@@ -153,7 +155,9 @@ class NStepPERBuffer(PERBuffer, NStep):
     ) -> NStepPERTransition:
         transition = super().sample_transitions(indices=indices, to_tensor=to_tensor)
 
-        next_observations = self.observations[(np.array(indices)+1) % self.buffer_size]
+        next_observations = self.observations[
+            (np.array(indices) + 1) % self.buffer_size
+        ]
         next_nstep_observations = self.next_observations[indices]
         if to_tensor:
             next_observations = (

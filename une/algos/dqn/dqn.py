@@ -38,7 +38,6 @@ class QNetwork(nn.Module):
 
 
 class DQN:
-    
     def __init__(
         self,
         observation_shape: Tuple[int],
@@ -219,7 +218,13 @@ class DQN:
 
         del params
 
-    def act(self, observation: np.ndarray, steps: int, random: bool = True, evaluate: bool = False) -> int:
+    def act(
+        self,
+        observation: np.ndarray,
+        steps: int,
+        random: bool = True,
+        evaluate: bool = False,
+    ) -> int:
         action = self.choose_action(observation=observation, steps=steps)
         self._last_observation = observation
         self._last_action = action
@@ -292,7 +297,6 @@ class DQN:
         steps: int,
         elementwise: bool = False,
     ) -> torch.Tensor:
-
         current_q_values = self.compute_q_values(
             samples_from_memory=samples_from_memory
         )

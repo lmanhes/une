@@ -44,7 +44,7 @@ def transpose_to_channel_first(image: np.ndarray) -> np.ndarray:
         transposed_idxs = [0, 3, 1, 2]
     else:
         transposed_idxs = [2, 0, 1]
-        #transposed_idxs = [image.ndim - 1] + list(range(image.ndim - 1))
+        # transposed_idxs = [image.ndim - 1] + list(range(image.ndim - 1))
     return np.transpose(image, transposed_idxs)
 
 
@@ -87,7 +87,7 @@ class VisionPreprocessing:
             image = convert_to_grayscale(image)
         elif self.channel_first:
             image = transpose_to_channel_first(image)
-        
+
         if self.resize:
             image = resize_square(image, self.new_size)
         if self.normalize:
@@ -108,7 +108,6 @@ def preprocess_obs(
     normalize: bool = False,
     to_tensor: bool = False,
 ) -> Union[np.ndarray, torch.Tensor]:
-
     if normalize:
         observation = normalize_image(observation)
 

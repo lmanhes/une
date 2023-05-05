@@ -118,4 +118,3 @@ class UniformBuffer(AbstractBuffer):
             return self.buffer_size
         else:
             return self.pos
-
