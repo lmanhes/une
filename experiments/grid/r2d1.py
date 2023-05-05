@@ -28,15 +28,15 @@ config = {
     "gamma": 0.99,
     "max_grad_norm": 5,
     "exploration_decay_eps_max_steps": 5e3,
-    "learning_rate":1e-4,
+    "learning_rate": 1e-4,
     "gradient_steps": 1,
     "tau": 5e-3,
     "soft_update": True,
     "buffer_size": int(2e5),
     "n_step": 5,
     "use_gpu": True,
-    "memory_buffer_type": 'per',
-    "exploration": 'noisy',
+    "memory_buffer_type": "per",
+    "exploration": "noisy",
     "intrinsic_reward_weight": 0.01,
     "icm_features_dim": 64,
     "icm_forward_loss_weight": 0.5,
@@ -48,7 +48,7 @@ config = {
     "recurrent_init_strategy": "first",
     "per_alpha": 0.7,
     "per_beta": 0.4,
-    "batch_size": 32
+    "batch_size": 32,
 }
 seed_agent(seed=seed)
 

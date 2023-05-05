@@ -13,12 +13,7 @@ class NStep(object):
     Paper: http://incompleteideas.net/papers/sutton-88-with-erratum.pdf
     """
 
-    def __init__(
-        self,
-        n_step: int = 3,
-        gamma: float = 0.99,
-        **kwargs
-    ) -> None:
+    def __init__(self, n_step: int = 3, gamma: float = 0.99, **kwargs) -> None:
         self.n_step = n_step
         self.gamma = gamma
 
@@ -98,7 +93,9 @@ class NStepUniformBuffer(UniformBuffer, NStep):
     ) -> NStepTransition:
         transition = super().sample_transitions(indices=indices, to_tensor=to_tensor)
 
-        next_observations = self.observations[(np.array(indices)+1) % self.buffer_size]
+        next_observations = self.observations[
+            (np.array(indices) + 1) % self.buffer_size
+        ]
         next_nstep_observations = self.next_observations[indices]
         if to_tensor:
             next_observations = (

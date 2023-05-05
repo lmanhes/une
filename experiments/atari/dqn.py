@@ -1,4 +1,5 @@
 import sys, os
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import wandb
@@ -21,22 +22,22 @@ config = {
     "gamma": 0.99,
     "max_grad_norm": 10,
     "exploration_decay_eps_max_steps": 5e3,
-    "learning_rate":1e-4,
+    "learning_rate": 1e-4,
     "gradient_steps": 1,
     "tau": 5e-3,
     "soft_update": True,
     "buffer_size": int(2e5),
     "n_step": 3,
     "use_gpu": False,
-    "memory_buffer_type": 'per',
-    "exploration": 'noisy',
+    "memory_buffer_type": "per",
+    "exploration": "noisy",
     "intrinsic_reward_weight": 0.01,
     "icm_features_dim": 64,
     "icm_forward_loss_weight": 0.5,
     "recurrent": False,
     "per_alpha": 0.7,
     "per_beta": 0.4,
-    "batch_size": 32
+    "batch_size": 32,
 }
 seed_agent(seed=seed)
 
@@ -48,7 +49,7 @@ agent = Agent(
     n_actions=env.action_space.n,
     exploration_initial_eps=1,
     exploration_final_eps=0.025,
-    **config
+    **config,
 )
 
 wandb.watch(agent.algo.networks, log="all")
