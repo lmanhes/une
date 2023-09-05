@@ -9,6 +9,7 @@ from une.algos.dqn.dqn import DQN
 from une.algos.dqn.icm_dqn import ICMDQN
 from une.algos.dqn.noisy_dqn import NoisyDQN
 from une.algos.r2d1.r2d1 import R2D1
+from une.algos.r2d1.icm_r2d1 import ICMR2D1
 from une.representations.abstract import AbstractRepresentation
 from une.memories.buffers.uniform import UniformBuffer
 from une.memories.buffers.nstep import NStepUniformBuffer
@@ -44,7 +45,7 @@ class Agent(object):
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
         exploration_decay_eps_max_steps: int = 1e4,
-        warmup: int = 1e4,
+        warmup: int = 0,
         train_freq: int = 4,
         save_freq: int = 1e3,
         use_gpu: bool = False,
@@ -55,6 +56,7 @@ class Agent(object):
         recurrent: bool = False,
         exploration: str = "epsilon-greedy",
         intrinsic_reward_weight: float = 0.1,
+        intrinsic_loss_weight: float = 0.1,
         icm_features_dim: int = 256,
         icm_forward_loss_weight: float = 0.2,
         ecm_memory_size: int = 300,
@@ -68,7 +70,10 @@ class Agent(object):
     ):
         super().__init__()
         if recurrent:
-            algo_cls = R2D1
+            if exploration == "icm":
+                algo_cls = ICMR2D1
+            else:
+                algo_cls = R2D1
             if n_step > 1:
                 if memory_buffer_type == "per":
                     memory_buffer_cls = RecurrentNStepPERBuffer
@@ -127,6 +132,7 @@ class Agent(object):
             per_alpha=per_alpha,
             per_beta=per_beta,
             intrinsic_reward_weight=intrinsic_reward_weight,
+            intrinsic_loss_weight=intrinsic_loss_weight,
             icm_features_dim=icm_features_dim,
             icm_forward_loss_weight=icm_forward_loss_weight,
             ecm_memory_size=ecm_memory_size,

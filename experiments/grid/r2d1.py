@@ -7,29 +7,22 @@ import wandb
 
 from une.agent import Agent
 from une.representations.vision.minigrid_cnn import MinigridCnn
-from une.representations.tabular.mlp import GymMlp
 from experiments.utils import make_gym_env, seed_agent, train
 
 seed = 42
 resume = False
 run_id = ""
 
-env_name = "MiniGrid-FourRooms-v0"
-env = make_gym_env(env_name=env_name, minigrid=True, flat=True, video=True, seed=seed)
+env_name = "MiniGrid-MultiRoom-N2-S4-v0"
+env = make_gym_env(env_name=env_name, minigrid=True, flat=False, video=True, seed=seed)
 print(env.observation_space, env.observation_space.dtype)
 
 config = {
     "name": f"DQN_{env_name}",
     "features_dim": 64,
-    "target_update_interval_steps": 1e2,
-    "train_freq": 1,
-    "save_freq": 5e4,
-    "warmup": 0,
     "gamma": 0.99,
     "max_grad_norm": 5,
-    "exploration_decay_eps_max_steps": 5e3,
     "learning_rate": 1e-4,
-    "gradient_steps": 1,
     "tau": 5e-3,
     "soft_update": True,
     "buffer_size": int(2e5),
@@ -38,7 +31,8 @@ config = {
     "memory_buffer_type": "per",
     "exploration": "noisy",
     "intrinsic_reward_weight": 0.01,
-    "icm_features_dim": 64,
+    "intrinsic_loss_weight": 0.1,
+    "icm_features_dim": 128,
     "icm_forward_loss_weight": 0.5,
     "recurrent": True,
     "sequence_length": 10,
@@ -58,12 +52,10 @@ if resume:
 else:
     run = wandb.init(project=env_name, config=config)
     agent = Agent(
-        representation_module_cls=GymMlp,
+        representation_module_cls=MinigridCnn,
         observation_shape=env.observation_space.shape,
         observation_dtype=env.observation_space.dtype,
         n_actions=env.action_space.n,
-        exploration_initial_eps=1,
-        exploration_final_eps=0.025,
         **config,
     )
 

@@ -49,11 +49,11 @@ def make_gym_env(
     if atari:
         env = AtariPreprocessing(env)
     elif minigrid:
-        if flat:
-            env = FlatObsWrapper(env)
-        else:
-            env = RGBImgObsWrapper(env)
-            env = ImgObsWrapperPermute(env)
+         if flat:
+             env = FlatObsWrapper(env)
+         else:
+    #         env = RGBImgObsWrapper(env)
+             env = ImgObsWrapperPermute(env)
 
     if n_frame_stack > 1:
         env = FrameStack(env, num_stack=n_frame_stack)

@@ -144,7 +144,7 @@ class R2D1(NoisyDQN):
         burn_in: int = 40,
         over_lapping: int = 20,
         recurrent_dim: int = 256,
-        recurrent_init_strategy: str = "burnin",
+        recurrent_init_strategy: str = "first",
         **kwargs,
     ):
         self.recurrent_dim = recurrent_dim
